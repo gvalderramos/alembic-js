@@ -1,0 +1,17 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/.yarn/unplugged/node-addon-api-npm-8.3.1-930b0a01a3",
+                "/home/gabrielvalderramos/dev/sdks/alembic-1.8.8/include"
+            ],
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+        }
+    ],
+    "version": 4
+}

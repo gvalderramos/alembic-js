@@ -1,4 +1,23 @@
 {
   "name": "alembic-js",
-  "packageManager": "yarn@4.6.0"
+  "packageManager": "yarn@4.6.0",
+  "dependencies": {
+    "@types/node": "^22.15.18",
+    "cmake-js": "^7.3.1",
+    "node-addon-api": "^8.3.1",
+    "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  },
+  "scripts": {
+    "build": "cmake-js compile",
+    "rebuild": "cmake-js rebuild",
+    "start": "tsc && node bin/index.js"
+  },
+  "binary": {
+    "napi_versions": [
+      10
+    ]
+  }
 }
