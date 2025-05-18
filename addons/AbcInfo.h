@@ -16,9 +16,19 @@ public:
     AbcInfo(const Napi::CallbackInfo& info);
     Napi::Value load(const Napi::CallbackInfo& info);
 
+    Napi::Value appName(const Napi::CallbackInfo&);
+    Napi::Value libraryVersionString(const Napi::CallbackInfo&);
+    Napi::Value libraryVersion(const Napi::CallbackInfo&);
+    Napi::Value whenWritten(const Napi::CallbackInfo&);
+    Napi::Value userDescription(const Napi::CallbackInfo&);
+
     static Napi::Function GetClass(Napi::Env);
 private:
-    void loadAbcFile(const std::filesystem::path& path);
+    Napi::Value loadAbcFile(const std::filesystem::path& path, const Napi::CallbackInfo& info);
 
-    Alembic::AbcGeom::IArchive m_abcArchive;
+    std::string m_appName;
+    std::string m_libraryVersionString;
+    Alembic::Util::uint32_t m_libraryVersion;
+    std::string m_whenWritten;
+    std::string m_userDescription;
 };
