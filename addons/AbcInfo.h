@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef ABCINFO_H
+#define ABCINFO_H
+
 #include <napi.h>
 
 #include <Alembic/AbcGeom/All.h>
@@ -12,20 +15,10 @@
 #include <vector>
 #include <string>
 
-struct ObjectInfo {
-    std::string name;
-    std::string type;
-    std::vector<ObjectInfo> children;
-};
+struct ObjectInfo;
+struct PropertyInfo;
 
-struct PropertyInfo {
-    std::string name;
-    std::string type;
-    std::string value;
-};
-
-class AbcInfo : public Napi::ObjectWrap<AbcInfo>
-{
+class AbcInfo : public Napi::ObjectWrap<AbcInfo<Napi::Object>> {
 public:
     AbcInfo(const Napi::CallbackInfo& info);
     Napi::Value load(const Napi::CallbackInfo& info);
@@ -51,3 +44,5 @@ private:
     std::vector<ObjectInfo> m_objects;
     std::vector<PropertyInfo> m_properties;
 };
+
+#endif // ABCINFO_H
