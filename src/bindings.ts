@@ -1,14 +1,14 @@
-const alembicJs = require('../build/alembic-js')
-
 export interface AbcInfo {
-    load(path: string): Promise<null>;
+    load(path: string): Promise<string>;
     appName(): string;
     libraryVersionString(): string;
     libraryVersion(): number;
     whenWritten(): string;
     userDescription(): string;
+    getObjects(): Promise<Object[]>;
+    getProperties(): Promise<Object[]>;
 }
 
 export var AbcInfo: {
-    new(path?: string): AbcInfo;
-} = alembicJs.AbcInfo;
+    new(): AbcInfo;
+} = require('../build/alembic-js').AbcInfo;

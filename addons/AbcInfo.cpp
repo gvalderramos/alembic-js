@@ -1,29 +1,52 @@
 #include "AbcInfo.h"
 
 #include <string>
+#include <vector>
 #include <thread>
 
-void visitObject( Alembic::AbcGeom::IObject iObj,
-                  std::string iIndent )
-{
-    // Object has a name, a full name, some meta data,
-    // and then it has a compound property full of properties.
-    std::string path = iObj.getFullName();
+struct ObjectInfo {
+    std::string name;
+    std::string type;
+    std::vector<ObjectInfo> children;
+};
 
-    if ( path != "/" )
-    {
-        std::cout << "Object " << "name=" << path << std::endl;
+struct PropertyInfo {
+    std::string name;
+    std::string type;
+    std::string value;
+};
+
+void visitObject(Alembic::AbcGeom::IObject iObj, std::string iIndent, std::vector<ObjectInfo>& objects) {
+    ObjectInfo obj;
+    obj.name = iObj.getFullName();
+    obj.type = "Object";
+    
+    // Get the properties
+    Alembic::AbcGeom::ICompoundProperty props = iObj.getProperties();
+    std::vector<PropertyInfo> propsData;
+    
+    // Add properties
+    for (size_t i = 0; i < props.getNumChildren(); i++) {
+        Alembic::Abc::IProperty iprop = props.getChild(i);
+        PropertyInfo prop;
+        prop.name = iprop.getName();
+        prop.type = iprop.getType().getName();
+        if (iprop.isScalar()) {
+            prop.value = "Scalar";
+        } else if (iprop.isArray()) {
+            prop.value = "Array";
+        } else {
+            prop.value = "Compound";
+        }
+        propsData.push_back(prop);
     }
+    
+    // Add to objects vector
+    objects.push_back(obj);
 
-    // Get the properties.
-    // ICompoundProperty props = iObj.getProperties();
-    // visitProperties( props, iIndent );
-
-    // now the child objects
-    for ( size_t i = 0 ; i < iObj.getNumChildren() ; i++ )
-    {
-        visitObject( Alembic::AbcGeom::IObject( iObj, iObj.getChildHeader( i ).getName() ),
-                     iIndent );
+    // Visit children
+    for (size_t i = 0; i < iObj.getNumChildren(); i++) {
+        visitObject(iObj.getChild(i), iIndent + "  ", objects);
     }
 }
 
@@ -33,7 +56,9 @@ AbcInfo::AbcInfo(const Napi::CallbackInfo& info)
       m_libraryVersionString(""),
       m_libraryVersion(0),
       m_whenWritten(""),
-      m_userDescription("")
+      m_userDescription(""),
+      m_objects {},
+      m_properties {}
 {
     auto env = info.Env();
 
@@ -61,8 +86,6 @@ Napi::Value AbcInfo::load(const Napi::CallbackInfo& info) {
             .ThrowAsJavaScriptException();
             return env.Null();
     }
-
-    return env.Null();
 }
 
 Napi::Value AbcInfo::appName(const Napi::CallbackInfo &info)
@@ -95,6 +118,37 @@ Napi::Value AbcInfo::userDescription(const Napi::CallbackInfo &info)
     return Napi::String::New(env, m_userDescription);
 }
 
+Napi::Value AbcInfo::getObjects(const Napi::CallbackInfo& info) {
+    auto env = info.Env();
+    Napi::Array result = Napi::Array::New(env);
+    
+    for (size_t i = 0; i < m_objects.size(); i++) {
+        auto& obj = m_objects[i];
+        Napi::Object objJs = Napi::Object::New(env);
+        objJs.Set("name", Napi::String::New(env, obj.name));
+        objJs.Set("type", Napi::String::New(env, obj.type));
+        result.Set(i, objJs);
+    }
+    
+    return result;
+}
+
+Napi::Value AbcInfo::getProperties(const Napi::CallbackInfo& info) {
+    auto env = info.Env();
+    Napi::Array result = Napi::Array::New(env);
+    
+    for (size_t i = 0; i < m_properties.size(); i++) {
+        auto& prop = m_properties[i];
+        Napi::Object propJs = Napi::Object::New(env);
+        propJs.Set("name", Napi::String::New(env, prop.name));
+        propJs.Set("type", Napi::String::New(env, prop.type));
+        propJs.Set("value", Napi::String::New(env, prop.value));
+        result.Set(i, propJs);
+    }
+    
+    return result;
+}
+
 Napi::Value AbcInfo::loadAbcFile(const std::filesystem::path& path, const Napi::CallbackInfo& info) {
     auto env = info.Env();
     auto deferred = Napi::Promise::Deferred::New(env);
@@ -119,14 +173,13 @@ Napi::Value AbcInfo::loadAbcFile(const std::filesystem::path& path, const Napi::
                 m_whenWritten,
                 m_userDescription
             );
-    
-            std::cout << "  file written by: " << m_appName << std::endl;
-            std::cout << "  using Alembic : " << m_libraryVersionString << std::endl;
-            std::cout << "  written on : " << m_whenWritten << std::endl;
-            std::cout << "  user description : " << m_userDescription << std::endl;
-            std::cout << std::endl;
-    
-            visitObject(archive.getTop(), "");
+
+            std::vector<ObjectInfo> objects;
+            visitObject(archive.getTop(), "", objects);
+            m_objects = objects;
+
+            // You might want to collect properties here as well
+            // This is just a basic example
             tsfn.BlockingCall([deferred](Napi::Env env, Napi::Function /* jsCallback */) {
                 deferred.Resolve(Napi::String::New(env, "Loaded successfully"));
             });
@@ -154,7 +207,8 @@ Napi::Function AbcInfo::GetClass(Napi::Env env)
             AbcInfo::InstanceMethod("libraryVersion", &AbcInfo::libraryVersion),
             AbcInfo::InstanceMethod("whenWritten", &AbcInfo::whenWritten),
             AbcInfo::InstanceMethod("userDescription", &AbcInfo::userDescription),
+            AbcInfo::InstanceMethod("getObjects", &AbcInfo::getObjects),
+            AbcInfo::InstanceMethod("getProperties", &AbcInfo::getProperties),
         }
     );
 }
-

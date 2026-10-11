@@ -9,6 +9,20 @@
 #include <Alembic/Abc/TypedPropertyTraits.h>
 
 #include <filesystem>
+#include <vector>
+#include <string>
+
+struct ObjectInfo {
+    std::string name;
+    std::string type;
+    std::vector<ObjectInfo> children;
+};
+
+struct PropertyInfo {
+    std::string name;
+    std::string type;
+    std::string value;
+};
 
 class AbcInfo : public Napi::ObjectWrap<AbcInfo>
 {
@@ -22,6 +36,9 @@ public:
     Napi::Value whenWritten(const Napi::CallbackInfo&);
     Napi::Value userDescription(const Napi::CallbackInfo&);
 
+    Napi::Value getObjects(const Napi::CallbackInfo&);
+    Napi::Value getProperties(const Napi::CallbackInfo&);
+
     static Napi::Function GetClass(Napi::Env);
 private:
     Napi::Value loadAbcFile(const std::filesystem::path& path, const Napi::CallbackInfo& info);
@@ -31,4 +48,6 @@ private:
     Alembic::Util::uint32_t m_libraryVersion;
     std::string m_whenWritten;
     std::string m_userDescription;
+    std::vector<ObjectInfo> m_objects;
+    std::vector<PropertyInfo> m_properties;
 };
