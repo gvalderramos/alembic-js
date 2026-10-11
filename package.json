@@ -1,19 +1,38 @@
 {
   "name": "alembic-js",
-  "packageManager": "yarn@4.6.0",
-  "dependencies": {
-    "@types/node": "^22.15.18",
-    "cmake-js": "^7.3.1",
-    "node-addon-api": "^8.3.1",
-    "typescript": "^5.8.3"
+  "version": "0.1.0",
+  "description": "Native Node.js bindings to read Alembic (.abc) files, with an optional three.js bridge",
+  "license": "MIT",
+  "author": "Gabriel Valderramos",
+  "packageManager": "yarn@1.22.22",
+  "main": "bin/index.js",
+  "types": "bin/index.d.ts",
+  "files": [
+    "bin/**/*.js",
+    "bin/**/*.d.ts",
+    "build/alembic-js.node",
+    "build/*.dll",
+    "addons",
+    "CMakeLists.txt"
+  ],
+  "engines": {
+    "node": ">=18"
   },
   "devDependencies": {
-    "ts-node": "^10.9.2"
+    "@types/node": "^22.15.18",
+    "@types/three": "^0.170.0",
+    "cmake-js": "^7.3.1",
+    "node-addon-api": "^8.3.1",
+    "three": "^0.170.0",
+    "typescript": "^5.8.3"
   },
   "scripts": {
-    "build": "cmake-js compile",
-    "rebuild": "cmake-js rebuild",
-    "start": "tsc && node bin/index.js"
+    "build": "yarn build:native && yarn build:ts",
+    "build:native": "cmake-js compile",
+    "build:ts": "tsc",
+    "rebuild": "cmake-js rebuild && tsc",
+    "fixtures": "cmake-js compile --out build-tools --target generate_fixtures --CDALEMBIC_JS_BUILD_TOOLS=ON && node scripts/generate-fixtures.js",
+    "test": "tsc -p tsconfig.test.json && node --test \"bin-test/test/**/*.test.js\""
   },
   "binary": {
     "napi_versions": [
