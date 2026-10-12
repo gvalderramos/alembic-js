@@ -26,7 +26,7 @@ runs:
         echo "prefix=$workspace/.deps/alembic-sdk" >> "$GITHUB_OUTPUT"
 
     - id: cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ steps.paths.outputs.prefix }}
         key: alembic-sdk-${{ runner.os }}-${{ runner.arch }}-alembic${{ inputs.alembic-version }}-imath${{ inputs.imath-version }}-v2

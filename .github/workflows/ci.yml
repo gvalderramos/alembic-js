@@ -24,8 +24,8 @@ jobs:
     name: Code style
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: yarn
@@ -52,8 +52,8 @@ jobs:
           - { os: windows-2022, node: 22, prebuild: win32-x64 }
           - { os: macos-14, node: 22, prebuild: darwin-arm64 }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: yarn
@@ -84,7 +84,7 @@ jobs:
 
       - name: Upload prebuilt addon
         if: matrix.prebuild
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.prebuild }}
           path: build/alembic-js.node
@@ -101,17 +101,17 @@ jobs:
       pull-requests: write
       id-token: write # npm provenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      # No dependency cache here: this job publishes, so it must not restore caches other branches could write.
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: yarn
       - run: yarn install --frozen-lockfile
       - run: yarn build:ts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: prebuild-*
           path: artifacts
