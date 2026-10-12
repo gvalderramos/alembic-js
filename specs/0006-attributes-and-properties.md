@@ -66,15 +66,17 @@ interface AbcPropertyInfo {
   indexed?: boolean                    // compound with .vals/.indices
   numSamples?: number
   animated?: boolean                   // !isConstant()
+  count?: number                       // array elements at the sampled time (from getDimensions, no data read)
   metadata: Record<string, string>     // raw metadata
   children?: AbcPropertyInfo[]         // compounds (when requested recursively)
 }
 
 class AbcFile {
   /** Lists properties of an object. `root` defaults to the top compound. */
-  getProperties(objectPath: string, options?: { root?: string; recursive?: boolean }): AbcPropertyInfo[]
+  getProperties(objectPath: string, options?: { root?: string; recursive?: boolean; time?: number }): AbcPropertyInfo[]
 }
 ```
+`count` comes from `IArrayProperty::getDimensions()`, which reads only the sample's size, never its values. That lets callers (and the sandbox UI) see how big an attribute is before reading it. For indexed parameters, `count` is the expanded size (the number of indices).
 A convenience listing for geometry attributes and user properties:
 ```ts
 getAttributes(objectPath: string): AbcPropertyInfo[]       // children of .arbGeomParams
@@ -110,7 +112,7 @@ class AbcFile {
 ### Attributes in the mesh layout
 ```ts
 interface MeshOptions extends SampleOptions {
-  /** Names (or '*') of .arbGeomParams to include, laid out like `positions`. */
+  /** Names (or '*') of .arbGeomParams to include, laid out like `positions`. Default: none, so the layout only changes on request. */
   attributes?: string[] | '*'
 }
 
@@ -139,6 +141,7 @@ Only numeric types are laid out per vertex. 64-bit integers are narrowed to 32-b
 ```ts
 interface ThreeSceneOptions {
   // ...existing...
+  /** Attributes to add to each geometry. Default: ['Cd', 'Col', 'color', 'displayColor'] (vertex colors). Pass [] to disable. */
   attributes?: string[] | '*'
   /** Map Alembic attribute names to three.js attribute names. Merged over the defaults. */
   attributeNames?: Record<string, string>
@@ -175,9 +178,10 @@ Colors are assumed to be linear. A `colorSpace` option (`'linear' | 'srgb'`) con
    - Keep normals and UVs on the same path, so there is one code path for every attribute.
 6. **N-API (`AbcArchive.cpp`):**
    - `getProperties`, `getProperty`, `getUserProperties`, and the `attributes` option on `getMesh`.
+   - `getProperties` fills `count` with `getDimensions()` at the requested time, so listing stays cheap.
    - Typed arrays via `Napi::TypedArrayOf<T>`; 64-bit via `napi_bigint64_array` / `napi_biguint64_array`.
    - Strings via `Napi::String`.
-7. **Size guard:** `getProperty` on very large arrays is fine (typed copy), but `recursive` listing must not read samples. Listing only reads headers and metadata.
+7. **Lazy by design:** opening a file reads only the hierarchy. Listing reads only headers, metadata and dimensions. Values are read only by `getProperty` / `getUserProperties` / `getMesh({ attributes })`.
 
 ## TypeScript Work (`src/`)
 - Types above in `src/types.ts`, exported from `src/index.ts`.
@@ -245,11 +249,12 @@ Implementing this spec first reduces the work in 0002–0004.
 
 ## Risks and Considerations
 - **Vertex count changes** when an attribute forces the per-corner split. That's a source of bugs for users who cache layouts, so `layout` must be explicit and documented.
-- **Memory:** `attributes: '*'` on a large mesh can multiply memory use. Default to no attributes, and document the cost.
+- **Memory:** `attributes: '*'` on a large mesh can multiply memory use. `getMesh` defaults to no attributes; document the cost, and use `count` from the listing to warn before large reads.
+- **No partial reads:** Alembic can only read a whole array sample (`get`/`getAs`) or just its size (`getDimensions`), not a range. Reading "the first N elements" would still load the full sample into native memory and only save the JS copy, so it's out of scope. Laziness (nothing read until requested) plus `count` covers the need.
 - **DCC naming varies** a lot (Maya color sets, Blender `Col`/`Attribute`, Houdini `Cd`), so the default mapping will never be complete. The override option is the escape hatch.
 - **Color spaces:** Alembic doesn't record a color space. Most DCCs write linear values, but some write sRGB. Expose `colorSpace` instead of guessing.
 - **Exotic types** (boxes, matrices, quaternions, and compounds that aren't indexed parameters) are listed with their pod and extent, and readable as raw numeric arrays, but don't get special treatment in v1.
 
-## Open Questions
-- Should `getMesh()` include `Cd` automatically when present, since vertex colors are the most common request? Proposal: no, keep it opt-in for predictable layouts; `buildThreeScene()` could default to `['Cd', 'Col', 'color', 'displayColor']`.
-- Do we need a streaming or partial read for very large arrays (for example, the first N elements for previews)?
+## Decisions
+- **Vertex colors in three.js:** `buildThreeScene()` includes vertex colors by default (its `attributes` option defaults to `['Cd', 'Col', 'color', 'displayColor']`). `getMesh()` stays opt-in (`attributes` defaults to none), so its vertex layout only changes when the caller asks for attributes.
+- **Partial reads:** not supported. Alembic can't read a range of an array sample, so the API stays lazy instead: nothing is read until requested, and the listing reports each array's `count` so callers can avoid large reads.
