@@ -50,14 +50,16 @@ describe('three.js bridge', () => {
         file.close();
     });
 
-    it('creates cameras and placeholder groups for other types', () => {
+    it('creates cameras, points, curves and placeholder groups', () => {
         const file = AbcFile.open(fixture('unsupported_types'));
         const root = buildThreeScene(file, THREE) as THREE.Group;
         const camera = root.getObjectByName('camera') as THREE.PerspectiveCamera;
         assert.ok(camera.isPerspectiveCamera);
         assert.equal(camera.near, 0.5);
         assert.equal(camera.far, 500);
-        assert.equal((root.getObjectByName('particles') as THREE.Group).type, 'Group');
+        assert.equal((root.getObjectByName('particles') as THREE.Points).type, 'Points');
+        assert.equal((root.getObjectByName('curve') as THREE.LineSegments).type, 'LineSegments');
+        assert.equal((root.getObjectByName('group') as THREE.Group).type, 'Group');
         const noCameras = buildThreeScene(file, THREE, { includeCameras: false }) as THREE.Group;
         assert.equal((noCameras.getObjectByName('camera') as THREE.Object3D).type, 'Group');
         file.close();

@@ -196,6 +196,59 @@ export interface PropertyReadOptions extends SampleOptions {
     expand?: boolean;
 }
 
+/** Points / particles (spec 0002). Positions are in the object's local space. */
+export interface AbcPoints {
+    name: string;
+    path: string;
+    type: 'points';
+    /** Number of points (0 for an empty sample, e.g. when all particles have died). */
+    count: number;
+    positions: Float32Array;
+    /** Stable particle ids (uint64 in Alembic). */
+    ids?: BigUint64Array;
+    /** xyz per point, in units per second. */
+    velocities?: Float32Array;
+    /** Diameters: one per point ('vertex') or a single value ('constant'). */
+    widths?: Float32Array;
+    widthScope?: 'vertex' | 'constant';
+    /** World matrix of the object. */
+    transform: Matrix4Array;
+}
+
+/** Curves (spec 0002): hair, guides, splines. */
+export interface AbcCurves {
+    name: string;
+    path: string;
+    type: 'curves';
+    /** xyz per control vertex, curve after curve. */
+    positions: Float32Array;
+    /** Control vertices per curve. */
+    vertexCounts: Int32Array;
+    curveCount: number;
+    curveType: 'linear' | 'cubic' | 'variableOrder';
+    /** Closed curves. */
+    periodic: boolean;
+    basis: 'none' | 'bezier' | 'bspline' | 'catmullrom' | 'hermite' | 'power';
+    /** Order per curve, for variableOrder (NURBS) curves. */
+    orders?: Uint8Array;
+    knots?: Float32Array;
+    /** Rational weights per control vertex. */
+    weights?: Float32Array;
+    /** Diameters; see widthScope for how many there are. */
+    widths?: Float32Array;
+    /**
+     * Element the widths belong to: one per curve ('uniform'), per control vertex ('vertex'),
+     * per span end ('varying'), or one in total ('constant'). Inferred from the count when the
+     * file labels them inconsistently (Blender writes per-vertex widths as 'constant').
+     */
+    widthScope?: 'constant' | 'uniform' | 'varying' | 'vertex' | 'unknown';
+    uvs?: Float32Array;
+    normals?: Float32Array;
+    velocities?: Float32Array;
+    /** World matrix of the object. */
+    transform: Matrix4Array;
+}
+
 export interface AbcTransform {
     path: string;
     /** Local matrix (identity for non-xform objects). */

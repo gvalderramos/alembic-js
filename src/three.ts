@@ -10,7 +10,8 @@
  * ```
  */
 import type { AbcFile } from './AbcFile';
-import type { AbcMesh, AbcMeshAttribute, AbcObject, Matrix4Array, SampleOptions } from './types';
+import { tessellateCurves, widthsPerVertex, type TessellateOptions } from './curves';
+import type { AbcCurves, AbcMesh, AbcMeshAttribute, AbcObject, AbcPoints, Matrix4Array, SampleOptions } from './types';
 
 type Ctor = new (...args: any[]) => any;
 
@@ -23,6 +24,10 @@ export interface ThreeModule {
     MeshStandardMaterial: Ctor;
     PerspectiveCamera: Ctor;
     Matrix4: Ctor;
+    Points: Ctor;
+    PointsMaterial: Ctor;
+    LineSegments: Ctor;
+    LineBasicMaterial: Ctor;
 }
 
 /** Attribute names read by default by buildThreeScene(): the usual vertex color names. */
@@ -44,6 +49,82 @@ export interface ThreeSceneOptions extends SampleOptions, GeometryOptions {
     includeCameras?: boolean;
     /** Attributes to add to each geometry. Default: DEFAULT_COLOR_ATTRIBUTES (vertex colors). Pass [] to disable. */
     attributes?: string[] | '*';
+    /** Material for points objects. Default: a PointsMaterial sized from the widths. */
+    pointsMaterial?: any;
+    /** Material for curves objects. Default: a LineBasicMaterial. */
+    curvesMaterial?: any;
+    /** Points evaluated per span of cubic/NURBS curves. Default 8. */
+    segmentsPerSpan?: number;
+}
+
+export interface PointsOptions {
+    material?: any;
+    /** Point size when the file has no widths. Default 0.05 (world units with size attenuation). */
+    size?: number;
+    /** Use per-point widths as sizes (adds a `pointWidth` attribute and patches the material). Default true. */
+    sizeFromWidths?: boolean;
+}
+
+/** Makes a PointsMaterial scale each point by its `pointWidth` attribute. */
+export function usePointWidths(material: any): any {
+    material.onBeforeCompile = (shader: { vertexShader: string }) => {
+        shader.vertexShader = shader.vertexShader
+            .replace('void main() {', 'attribute float pointWidth;\nvoid main() {')
+            .replace('gl_PointSize = size;', 'gl_PointSize = size * pointWidth;');
+    };
+    material.customProgramCacheKey = () => 'alembic-js-point-widths';
+    return material;
+}
+
+/** Converts points into a THREE.Points (local space). Velocities become a `velocity` attribute, ids go to userData. */
+export function toPoints(points: AbcPoints, THREE: ThreeModule, options: PointsOptions = {}): any {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(points.positions, 3));
+    if (points.velocities) {
+        geometry.setAttribute('velocity', new THREE.BufferAttribute(points.velocities, 3));
+    }
+    const perPoint = points.widths && points.widthScope === 'vertex' && options.sizeFromWidths !== false;
+    if (perPoint) {
+        geometry.setAttribute('pointWidth', new THREE.BufferAttribute(points.widths, 1));
+    }
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+
+    let material = options.material;
+    if (!material) {
+        const fromWidths = options.sizeFromWidths !== false ? points.widths?.[0] : undefined;
+        const size = perPoint ? 1 : (fromWidths ?? options.size ?? 0.05);
+        material = new THREE.PointsMaterial({ size, sizeAttenuation: true, color: 0xd0d0d0 });
+        if (perPoint) {
+            usePointWidths(material);
+        }
+    }
+    const node = new THREE.Points(geometry, material);
+    if (points.ids) {
+        node.userData.ids = points.ids;
+    }
+    return node;
+}
+
+/** Converts curves into a THREE.LineSegments, evaluating cubic and NURBS curves (local space). */
+export function toLineSegments(
+    curves: AbcCurves,
+    THREE: ThreeModule,
+    options: TessellateOptions & { material?: any } = {},
+): any {
+    const { positions, indices } = tessellateCurves(curves, options);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    const material = options.material ?? new THREE.LineBasicMaterial({ color: 0xd0d0d0 });
+    const node = new THREE.LineSegments(geometry, material);
+    const widths = widthsPerVertex(curves);
+    if (widths) {
+        node.userData.controlVertexWidths = widths;
+    }
+    return node;
 }
 
 // Common names of a second UV set. Maya's primary set is "map1", so it is not included.
@@ -129,7 +210,8 @@ function applyMatrix(object: any, matrix: Matrix4Array, THREE: ThreeModule): voi
 
 /**
  * Rebuilds the Alembic hierarchy as three.js objects: xforms become Groups with
- * their local transform, meshes become Mesh, cameras become PerspectiveCamera.
+ * their local transform, meshes become Mesh, points become Points, curves become
+ * LineSegments, cameras become PerspectiveCamera.
  * Other object types become empty Groups so the hierarchy is preserved.
  */
 export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: ThreeSceneOptions = {}): any {
@@ -147,6 +229,13 @@ export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: Thre
                 options.material ??
                 new THREE.MeshStandardMaterial(hasColors ? { vertexColors: true } : { color: 0xb0b0b0 });
             node = new THREE.Mesh(geometry, material);
+        } else if (obj.type === 'points') {
+            node = toPoints(file.getPoints(obj.path, sample), THREE, { material: options.pointsMaterial });
+        } else if (obj.type === 'curves') {
+            node = toLineSegments(file.getCurves(obj.path, sample), THREE, {
+                material: options.curvesMaterial,
+                segmentsPerSpan: options.segmentsPerSpan,
+            });
         } else if (obj.type === 'camera' && options.includeCameras !== false) {
             const cam = file.getCamera(obj.path, sample);
             node = new THREE.PerspectiveCamera(cam.fov, cam.aspect, cam.near, cam.far);

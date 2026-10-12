@@ -4,9 +4,11 @@ import { AlembicError, wrapNativeError } from './errors';
 import { loadNative, type NativeArchive } from './native';
 import type {
     AbcCamera,
+    AbcCurves,
     AbcFileInfo,
     AbcMesh,
     AbcObject,
+    AbcPoints,
     AbcPropertyInfo,
     AbcTransform,
     AbcUserProperties,
@@ -159,6 +161,30 @@ export class AbcFile {
 
     getCamera(objectPath: string, options: SampleOptions = {}): AbcCamera {
         return this.call(() => this.native.getCamera(objectPath, options.time), objectPath);
+    }
+
+    /** Points of a 'points' object (particles, point clouds). */
+    getPoints(objectPath: string, options: SampleOptions = {}): AbcPoints {
+        return this.call(() => this.native.getPoints(objectPath, options.time), objectPath);
+    }
+
+    /** Every 'points' object in the archive. */
+    getAllPoints(options: SampleOptions = {}): AbcPoints[] {
+        return this.requireObjects()
+            .filter((obj) => obj.type === 'points')
+            .map((obj) => this.getPoints(obj.path, options));
+    }
+
+    /** Control vertices and curve data of a 'curves' object (use tessellateCurves() to evaluate them). */
+    getCurves(objectPath: string, options: SampleOptions = {}): AbcCurves {
+        return this.call(() => this.native.getCurves(objectPath, options.time), objectPath);
+    }
+
+    /** Every 'curves' object in the archive. */
+    getAllCurves(options: SampleOptions = {}): AbcCurves[] {
+        return this.requireObjects()
+            .filter((obj) => obj.type === 'curves')
+            .map((obj) => this.getCurves(obj.path, options));
     }
 
     /** Lists an object's properties without reading their values. */

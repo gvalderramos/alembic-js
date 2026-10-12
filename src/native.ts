@@ -4,9 +4,11 @@ import * as path from 'path';
 import { AlembicError } from './errors';
 import type {
     AbcCamera,
+    AbcCurves,
     AbcFileInfo,
     AbcMesh,
     AbcObject,
+    AbcPoints,
     AbcPropertyInfo,
     AbcTransform,
     AbcUserProperties,
@@ -22,6 +24,8 @@ export interface NativeArchive {
     getInfo(): AbcFileInfo;
     getObjects(): AbcObject[];
     getMesh(objectPath: string, time?: number, options?: { attributes?: string[] | '*'; layout?: string }): AbcMesh;
+    getPoints(objectPath: string, time?: number): AbcPoints;
+    getCurves(objectPath: string, time?: number): AbcCurves;
     getProperties(objectPath: string, root?: string, recursive?: boolean, time?: number): AbcPropertyInfo[];
     getProperty(objectPath: string, propertyPath: string, time?: number, expand?: boolean): AbcValue;
     getUserProperties(objectPath: string, time?: number): AbcUserProperties;

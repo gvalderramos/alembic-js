@@ -239,6 +239,78 @@ void attributes(const std::filesystem::path& dir)
     writeCube(archive.getTop(), "plainShape");
 }
 
+// Points and curves (spec 0002).
+// /particles     4 points, ids 10..13, velocity (1,0,0) units/s, widths 0.1..0.4, 2 frames at 24 fps
+// /linearCurves  2 linear curves (3 and 4 vertices), per-curve widths
+// /linearLoop    1 periodic linear curve (unit square)
+// /bezierCurve   1 cubic Bezier (4 CVs), constant width 0.5
+// /bsplineCurve  1 cubic B-spline (5 CVs), per-vertex widths and UVs
+// /nurbsArc      rational quadratic quarter circle (order 3, knots 0 0 0 1 1 1, weights 1 sqrt(2)/2 1)
+// /badCurves     vertex counts that don't add up to the positions
+void pointsAndCurves(const std::filesystem::path& dir)
+{
+    Abc::OArchive archive = createArchive(dir / "points_and_curves.abc");
+    Abc::OObject top = archive.getTop();
+    const Alembic::AbcCoreAbstract::TimeSampling ts(1.0 / 24.0, 1.0 / 24.0);
+    const uint32_t tsIndex = archive.addTimeSampling(ts);
+
+    AbcG::OPoints particles(top, "particles", tsIndex);
+    const std::vector<uint64_t> ids = {10, 11, 12, 13};
+    const std::vector<Imath::V3f> velocities(4, Imath::V3f(1, 0, 0));
+    const std::vector<float> widths = {0.1f, 0.2f, 0.3f, 0.4f};
+    for (int frame = 0; frame < 2; ++frame) {
+        std::vector<Imath::V3f> P;
+        for (int i = 0; i < 4; ++i)
+            P.push_back(Imath::V3f(i + frame / 24.0f, 0, 0));
+        AbcG::OPointsSchema::Sample sample(
+            AbcG::P3fArraySample(P), Abc::UInt64ArraySample(ids), Abc::V3fArraySample(velocities),
+            AbcG::OFloatGeomParam::Sample(Abc::FloatArraySample(widths), AbcG::kVertexScope));
+        particles.getSchema().set(sample);
+    }
+
+    auto writeCurves = [&](const std::string& name, const std::vector<Imath::V3f>& P,
+                           const std::vector<int32_t>& counts, AbcG::CurveType type, AbcG::CurvePeriodicity wrap,
+                           AbcG::BasisType basis, const AbcG::OFloatGeomParam::Sample& widths,
+                           const AbcG::OV2fGeomParam::Sample& uvs = AbcG::OV2fGeomParam::Sample(),
+                           const std::vector<float>& weights = {}, const std::vector<uint8_t>& orders = {},
+                           const std::vector<float>& knots = {}) {
+        AbcG::OCurves curves(top, name);
+        AbcG::OCurvesSchema::Sample sample(AbcG::P3fArraySample(P), Abc::Int32ArraySample(counts), type, wrap, widths,
+                                           uvs, AbcG::ON3fGeomParam::Sample(), basis, Abc::FloatArraySample(weights),
+                                           Abc::UcharArraySample(orders), Abc::FloatArraySample(knots));
+        curves.getSchema().set(sample);
+    };
+
+    const std::vector<float> perCurve = {0.1f, 0.2f};
+    writeCurves("linearCurves", {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {0, 1, 0}, {1, 1, 0}, {2, 1, 0}, {3, 1, 0}}, {3, 4},
+                AbcG::kLinear, AbcG::kNonPeriodic, AbcG::kNoBasis,
+                AbcG::OFloatGeomParam::Sample(Abc::FloatArraySample(perCurve), AbcG::kUniformScope));
+
+    writeCurves("linearLoop", {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}}, {4}, AbcG::kLinear, AbcG::kPeriodic,
+                AbcG::kNoBasis, AbcG::OFloatGeomParam::Sample());
+
+    const std::vector<float> constantWidth = {0.5f};
+    writeCurves("bezierCurve", {{0, 0, 0}, {0, 1, 0}, {1, 1, 0}, {1, 0, 0}}, {4}, AbcG::kCubic, AbcG::kNonPeriodic,
+                AbcG::kBezierBasis,
+                AbcG::OFloatGeomParam::Sample(Abc::FloatArraySample(constantWidth), AbcG::kConstantScope));
+
+    const std::vector<float> vertexWidths = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f};
+    std::vector<Imath::V2f> curveUvs;
+    for (int i = 0; i < 5; ++i)
+        curveUvs.push_back(Imath::V2f(i / 4.0f, 0));
+    writeCurves("bsplineCurve", {{0, 0, 0}, {1, 2, 0}, {2, 0, 0}, {3, 2, 0}, {4, 0, 0}}, {5}, AbcG::kCubic,
+                AbcG::kNonPeriodic, AbcG::kBsplineBasis,
+                AbcG::OFloatGeomParam::Sample(Abc::FloatArraySample(vertexWidths), AbcG::kVertexScope),
+                AbcG::OV2fGeomParam::Sample(AbcG::V2fArraySample(curveUvs), AbcG::kVertexScope));
+
+    writeCurves("nurbsArc", {{1, 0, 0}, {1, 1, 0}, {0, 1, 0}}, {3}, AbcG::kVariableOrder, AbcG::kNonPeriodic,
+                AbcG::kBsplineBasis, AbcG::OFloatGeomParam::Sample(), AbcG::OV2fGeomParam::Sample(),
+                {1.0f, 0.70710678f, 1.0f}, {3}, {0, 0, 0, 1, 1, 1});
+
+    writeCurves("badCurves", {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}}, {5}, AbcG::kLinear, AbcG::kNonPeriodic, AbcG::kNoBasis,
+                AbcG::OFloatGeomParam::Sample());
+}
+
 int main(int argc, char** argv)
 {
     const std::filesystem::path dir = argc > 1 ? argv[1] : "test/fixtures";
@@ -249,6 +321,7 @@ int main(int argc, char** argv)
         nestedHierarchy(dir);
         unsupportedTypes(dir);
         attributes(dir);
+        pointsAndCurves(dir);
     } catch (const std::exception& e) {
         std::cerr << "Failed to write fixtures: " << e.what() << std::endl;
         return 1;

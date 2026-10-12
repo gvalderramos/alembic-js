@@ -9,7 +9,8 @@ import { AlembicError, type AbcErrorCode } from '../src';
 export const repoRoot = path.resolve(__dirname, '..', '..');
 
 /** Fixtures written by tools/generate_fixtures.cpp (`yarn fixtures`). */
-export type FixtureName = 'simple_mesh' | 'transformed_mesh' | 'nested_hierarchy' | 'unsupported_types' | 'attributes';
+export type FixtureName =
+    'simple_mesh' | 'transformed_mesh' | 'nested_hierarchy' | 'unsupported_types' | 'attributes' | 'points_and_curves';
 
 export function fixture(name: FixtureName): string {
     return path.join(repoRoot, 'test', 'fixtures', `${name}.abc`);

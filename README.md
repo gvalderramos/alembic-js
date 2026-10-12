@@ -87,10 +87,14 @@ Every failure throws an `AlembicError` with a `code` (plus `file`/`objectPath` w
 | `getMesh(path, {time})` / `getMeshes({time})` | `AbcMesh` for `mesh` and `subd` objects |
 | `getTransform(path, {time})` | local and world matrices, `inheritsTransform` |
 | `getCamera(path, {time})` | focal length, apertures, near/far, vertical fov, aspect, world matrix |
+| `getPoints(path, {time})` / `getAllPoints()` | `AbcPoints`: positions, ids (`BigUint64Array`), velocities, widths |
+| `getCurves(path, {time})` / `getAllCurves()` | `AbcCurves`: control vertices, vertex counts, type, basis, periodic, orders/knots/weights, widths (with scope), UVs, normals |
 | `getProperties(path, {root, recursive, time})` | property tree (name, kind, type, interpretation, scope, sample count, element count), without reading values |
 | `getAttributes(path)` | the object's geometry attributes (`.arbGeomParams`) |
 | `getProperty(path, propertyPath, {time, expand})` | one property as typed data, e.g. `getProperty('/geo/shape', '.arbGeomParams/Cd')` |
 | `getUserProperties(path, {time})` | user properties as a plain object (single-value arrays unwrapped) |
+
+`getMesh()` on a `points` or `curves` object throws `ERR_ABC_UNSUPPORTED_TYPE` and names the right method.
 
 Object `type` is one of `xform`, `mesh`, `subd`, `camera`, `points`, `curves`, `nupatch`, `light`, `faceset` or `unknown`.
 
@@ -99,6 +103,11 @@ Mesh notes:
 - When normals or UVs are face-varying, vertices are split per face corner. Otherwise the original points are shared.
 - Data is copied into JS-owned typed arrays, so no native memory is exposed.
 - `getMesh(path, { attributes: ['Cd', 'uv2'] })` (or `'*'`) adds geometry attributes laid out like `positions`. Attributes stored per face corner or per face switch the mesh to one vertex per corner; `mesh.layout` tells you which (`'points'` or `'corners'`). Nothing is added unless you ask.
+
+### Points and curves
+- `tessellateCurves(curves, { segmentsPerSpan })` evaluates curves into polylines without three.js: linear, cubic Bezier, B-spline and Catmull-Rom, and NURBS (`variableOrder`, de Boor with rational weights). Hermite and power bases fall back to the control polygon.
+- `widthsPerVertex(curves)` expands widths to one per control vertex, whatever their scope. Exporters don't always label widths correctly (Blender writes per-vertex widths as `constant`), so `widthScope` is inferred from the count when the label doesn't match.
+- three.js: `toPoints()` creates a `THREE.Points` whose point sizes come from the widths, and `toLineSegments()` creates a `THREE.LineSegments`. `buildThreeScene()` uses both.
 
 ### Attributes in three.js
 `buildThreeScene()` reads vertex colors by default (`Cd`, `Col`, `color`, `displayColor`) and enables `vertexColors` on its default materials. Pass `attributes: '*'` for everything, or `[]` for none. Names are mapped to three.js attributes as follows (override with `attributeNames`):
@@ -161,7 +170,7 @@ yarn fixtures
 - [x] Mesh / SubD geometry, transforms and cameras
 - [x] Sampling at a given time
 - [x] three.js bridge
-- [ ] Points and curves geometry ([spec](specs/0002-points-and-curves.md))
+- [x] Points and curves geometry ([spec](specs/0002-points-and-curves.md))
 - [ ] Face sets / materials ([spec](specs/0003-face-sets-and-materials.md))
 - [ ] Velocity-based motion and animation helpers ([spec](specs/0004-animation-and-velocity.md))
 - [ ] Prebuilt binaries and CI matrix ([spec](specs/0005-prebuilt-binaries-and-ci.md))

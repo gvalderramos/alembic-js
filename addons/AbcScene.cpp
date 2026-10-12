@@ -121,8 +121,10 @@ Alembic::Abc::IObject ResolveObject(const ArchiveData& data, const std::string& 
 
 namespace {
 
+} // namespace
+
 // World matrix: product of every IXform from the root down to (and including) obj.
-Matrix worldMatrix(AbcG::IObject obj, const Alembic::Abc::ISampleSelector& sel)
+Matrix WorldMatrix(Alembic::Abc::IObject obj, const Alembic::Abc::ISampleSelector& sel)
 {
     std::vector<AbcG::IObject> chain;
     for (AbcG::IObject it = obj; it.valid() && it.getParent().valid(); it = it.getParent()) {
@@ -139,6 +141,8 @@ Matrix worldMatrix(AbcG::IObject obj, const Alembic::Abc::ISampleSelector& sel)
     }
     return toMatrix(world);
 }
+
+namespace {
 
 const ObjectRecord& requireRecord(const ArchiveData& data, const std::string& objectPath)
 {
@@ -489,8 +493,11 @@ MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, double
 {
     const ObjectRecord& rec = requireRecord(data, objectPath);
     if (rec.type != "mesh" && rec.type != "subd") {
+        const std::string hint = rec.type == "points"   ? " (use getPoints())"
+                                 : rec.type == "curves" ? " (use getCurves())"
+                                                        : "";
         throw AbcError(codes::UnsupportedType, "Object '" + objectPath + "' is of type '" + rec.type +
-                                                   "'; only 'mesh' and 'subd' provide geometry");
+                                                   "'; only 'mesh' and 'subd' provide geometry" + hint);
     }
     return guarded("mesh '" + objectPath + "'", [&] {
         AbcG::IObject obj = ResolveObject(data, objectPath);
@@ -505,7 +512,7 @@ MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, double
             AbcG::ISubD subd(obj, Alembic::Abc::kWrapExisting);
             mesh = readMeshSchema(subd.getSchema(), rec, sel, nullptr, options);
         }
-        mesh.transform = worldMatrix(obj, sel);
+        mesh.transform = WorldMatrix(obj, sel);
         return mesh;
     });
 }
@@ -527,7 +534,7 @@ TransformData ReadTransform(const ArchiveData& data, const std::string& objectPa
             out.inheritsTransform = sample.getInheritsXforms();
             out.animated = !xform.getSchema().isConstant();
         }
-        out.world = worldMatrix(obj, sel);
+        out.world = WorldMatrix(obj, sel);
         return out;
     });
 }
@@ -561,7 +568,7 @@ CameraData ReadCamera(const ArchiveData& data, const std::string& objectPath, do
         if (out.verticalAperture > 0.0) {
             out.aspect = out.horizontalAperture / out.verticalAperture;
         }
-        out.transform = worldMatrix(obj, sel);
+        out.transform = WorldMatrix(obj, sel);
         return out;
     });
 }

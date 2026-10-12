@@ -270,6 +270,64 @@ Napi::Value AbcArchive::getMesh(const Napi::CallbackInfo& info)
     });
 }
 
+Napi::Value AbcArchive::getPoints(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    const double time = optionalTime(info, 1);
+    return translate(env, [&]() -> Napi::Value {
+        abcjs::PointsData points = abcjs::ReadPoints(data, objectPath, time);
+        Napi::Object out = Napi::Object::New(env);
+        out.Set("name", points.name);
+        out.Set("path", points.path);
+        out.Set("type", "points");
+        out.Set("count", Napi::Number::New(env, static_cast<double>(points.positions.size() / 3)));
+        out.Set("positions", abcjs::ToTypedArray(env, points.positions));
+        if (points.hasIds) out.Set("ids", abcjs::ToTypedArray(env, points.ids));
+        if (!points.velocities.empty()) out.Set("velocities", abcjs::ToTypedArray(env, points.velocities));
+        if (!points.widths.empty()) {
+            out.Set("widths", abcjs::ToTypedArray(env, points.widths));
+            out.Set("widthScope", points.widthScope);
+        }
+        out.Set("transform", toArray(env, points.transform));
+        return out;
+    });
+}
+
+Napi::Value AbcArchive::getCurves(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    const double time = optionalTime(info, 1);
+    return translate(env, [&]() -> Napi::Value {
+        abcjs::CurvesData curves = abcjs::ReadCurves(data, objectPath, time);
+        Napi::Object out = Napi::Object::New(env);
+        out.Set("name", curves.name);
+        out.Set("path", curves.path);
+        out.Set("type", "curves");
+        out.Set("positions", abcjs::ToTypedArray(env, curves.positions));
+        out.Set("vertexCounts", abcjs::ToTypedArray(env, curves.vertexCounts));
+        out.Set("curveCount", Napi::Number::New(env, static_cast<double>(curves.vertexCounts.size())));
+        out.Set("curveType", curves.curveType);
+        out.Set("periodic", Napi::Boolean::New(env, curves.periodic));
+        out.Set("basis", curves.basis);
+        if (!curves.orders.empty()) out.Set("orders", abcjs::ToTypedArray(env, curves.orders));
+        if (!curves.knots.empty()) out.Set("knots", abcjs::ToTypedArray(env, curves.knots));
+        if (!curves.weights.empty()) out.Set("weights", abcjs::ToTypedArray(env, curves.weights));
+        if (!curves.widths.empty()) {
+            out.Set("widths", abcjs::ToTypedArray(env, curves.widths));
+            out.Set("widthScope", curves.widthScope);
+        }
+        if (!curves.uvs.empty()) out.Set("uvs", abcjs::ToTypedArray(env, curves.uvs));
+        if (!curves.normals.empty()) out.Set("normals", abcjs::ToTypedArray(env, curves.normals));
+        if (!curves.velocities.empty()) out.Set("velocities", abcjs::ToTypedArray(env, curves.velocities));
+        out.Set("transform", toArray(env, curves.transform));
+        return out;
+    });
+}
+
 Napi::Value AbcArchive::getProperties(const Napi::CallbackInfo& info)
 {
     auto env = info.Env();
@@ -365,6 +423,8 @@ Napi::Function AbcArchive::GetClass(Napi::Env env)
                            InstanceMethod("getMesh", &AbcArchive::getMesh),
                            InstanceMethod("getTransform", &AbcArchive::getTransform),
                            InstanceMethod("getCamera", &AbcArchive::getCamera),
+                           InstanceMethod("getPoints", &AbcArchive::getPoints),
+                           InstanceMethod("getCurves", &AbcArchive::getCurves),
                            InstanceMethod("getProperties", &AbcArchive::getProperties),
                            InstanceMethod("getProperty", &AbcArchive::getProperty),
                            InstanceMethod("getUserProperties", &AbcArchive::getUserProperties),
