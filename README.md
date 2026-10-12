@@ -148,6 +148,8 @@ yarn fixtures
 - [ ] Velocity-based motion and animation helpers ([spec](specs/0004-animation-and-velocity.md))
 - [ ] Prebuilt binaries and CI matrix ([spec](specs/0005-prebuilt-binaries-and-ci.md))
 - [ ] Attributes and properties: vertex colors, custom attributes, user properties ([spec](specs/0006-attributes-and-properties.md))
+- [ ] Test assets: real-world files for every feature ([spec](specs/0007-test-assets.md), [catalog](resource/README.md))
+- [ ] Alembic instancing (found while building the test assets; see spec 0007)
 
 ---
 

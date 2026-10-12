@@ -2,3 +2,6 @@
 /.yarn/releases/*    binary
 /.yarn/plugins/**/*  binary
 /.pnp.*              binary linguist-generated
+
+# Alembic archives are binary; never convert line endings
+*.abc binary

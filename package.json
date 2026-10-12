@@ -50,7 +50,8 @@
     "lint": "eslint . && prettier --check \"{src,test,scripts,sandbox/src,sandbox/public}/**/*.{ts,js,html}\"",
     "format": "prettier --write \"{src,test,scripts,sandbox/src,sandbox/public}/**/*.{ts,js,html}\" && clang-format -i addons/*.cpp addons/*.h tools/*.cpp",
     "lint:cpp": "clang-format --dry-run --Werror addons/*.cpp addons/*.h tools/*.cpp",
-    "prepack": "tsc"
+    "prepack": "tsc",
+    "assets:blender": "node scripts/make-blender-assets.js"
   },
   "binary": {
     "napi_versions": [
