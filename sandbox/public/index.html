@@ -101,6 +101,16 @@
 
             const { info, objects } = meta;
             const depth = (p) => p.split('/').length - 2;
+            // Object line plus its user properties and geometry attributes (spec 0006).
+            const describe = (o) => {
+                const props = Object.entries(o.userProperties ?? {})
+                    .map(([k, v]) => `${escape(k)} = ${escape(JSON.stringify(v))}`)
+                    .concat((o.attributes ?? []).map((a) => `attr ${escape(a)}`));
+                const details = props.length
+                    ? `<div style="color:#9aa0a6;font-size:11px;margin-left:12px">${props.join('<br>')}</div>`
+                    : '';
+                return `<li style="margin-left:${depth(o.path) * 12}px">${escape(o.name)} <span style="color:#9aa0a6">${o.type}</span>${details}</li>`;
+            };
             document.getElementById('info').innerHTML = `
             <dl>
                 <dt>File</dt><dd>${escape(info.path.split(/[\\/]/).pop())}</dd>
@@ -109,7 +119,7 @@
                 <dt>Objects</dt><dd>${info.objectCount}</dd>
                 <dt>Animated</dt><dd>${info.hasAnimation}</dd>
             </dl>
-            <ul>${objects.map((o) => `<li style="margin-left:${depth(o.path) * 12}px">${escape(o.name)} <span style="color:#9aa0a6">${o.type}</span></li>`).join('')}</ul>`;
+            <ul>${objects.map(describe).join('')}</ul>`;
 
             // Frame the model.
             const box = new THREE.Box3().setFromObject(gltf.scene);
