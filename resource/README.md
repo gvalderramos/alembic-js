@@ -10,7 +10,7 @@ Rules (see [spec 0007](../specs/0007-test-assets.md)):
 ## Catalog
 
 ### `Ancient_Kettle.abc` (3.3 MB)
-- **Source:** Blender export (Alembic 1.7.12, 2021). Original author "WT"; source URL and license **unknown — to be confirmed**.
+- **Source:** Blender export (Alembic 1.7.12, 2021), original author "WT". It was a free download, but the source URL and license are **unknown**. "Free to download" doesn't always allow redistribution, so spec 0007 plans to replace it with an equivalent generated asset unless the license can be confirmed.
 - **Contents:** camera, 3 static meshes (quads, no normals or UVs), and user property `meshtype`.
 - **Quirks:** the kettle body has 250 identical samples, so `isConstant()` is true. The archive start and end times are equal (1/24 s).
 - **Used by:** `test/three.test.ts`, the sandbox, spec 0006 (user property regression).
