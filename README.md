@@ -143,10 +143,10 @@ yarn fixtures
 - [x] Mesh / SubD geometry, transforms and cameras
 - [x] Sampling at a given time
 - [x] three.js bridge
-- [ ] Points and curves geometry
-- [ ] Face sets / materials
-- [ ] Velocity-based motion and animation helpers
-- [ ] Prebuilt binaries and CI matrix
+- [ ] Points and curves geometry ([spec](specs/0002-points-and-curves.md))
+- [ ] Face sets / materials ([spec](specs/0003-face-sets-and-materials.md))
+- [ ] Velocity-based motion and animation helpers ([spec](specs/0004-animation-and-velocity.md))
+- [ ] Prebuilt binaries and CI matrix ([spec](specs/0005-prebuilt-binaries-and-ci.md))
 
 ---
 
