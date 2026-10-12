@@ -11,7 +11,16 @@
  */
 import type { AbcFile } from './AbcFile';
 import { tessellateCurves, widthsPerVertex, type TessellateOptions } from './curves';
-import type { AbcCurves, AbcMesh, AbcMeshAttribute, AbcObject, AbcPoints, Matrix4Array, SampleOptions } from './types';
+import type {
+    AbcCurves,
+    AbcMaterial,
+    AbcMesh,
+    AbcMeshAttribute,
+    AbcObject,
+    AbcPoints,
+    Matrix4Array,
+    SampleOptions,
+} from './types';
 
 type Ctor = new (...args: any[]) => any;
 
@@ -55,6 +64,17 @@ export interface ThreeSceneOptions extends SampleOptions, GeometryOptions {
     curvesMaterial?: any;
     /** Points evaluated per span of cubic/NURBS curves. Default 8. */
     segmentsPerSpan?: number;
+    /**
+     * Creates the material of each slot of a mesh with face sets (spec 0003). Called once per slot;
+     * `material` is the assigned AbcMaterial, when the file has one. Default: a grey
+     * MeshStandardMaterial per slot. Ignored when `material` is set.
+     */
+    createMaterial?: (slot: { name: string; faceSet?: string; material?: AbcMaterial; mesh: string }) => any;
+    /**
+     * Called when an object can't be read (e.g. malformed data); the object becomes an empty Group
+     * and the rest of the scene is still built. By default the error is thrown.
+     */
+    onError?: (error: unknown, object: AbcObject) => void;
 }
 
 export interface PointsOptions {
@@ -183,6 +203,9 @@ export function toBufferGeometry(mesh: AbcMesh, THREE: ThreeModule, options: Geo
         geometry.setAttribute('uv', new THREE.BufferAttribute(mesh.uvs, 2));
     }
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+    for (const group of mesh.groups ?? []) {
+        geometry.addGroup(group.start * 3, group.count * 3, group.materialIndex);
+    }
     const vertexCount = mesh.positions.length / 3;
     for (const [name, attribute] of Object.entries(mesh.attributes ?? {})) {
         const target = threeAttributeName(name, attribute, options.attributeNames);
@@ -215,20 +238,74 @@ function applyMatrix(object: any, matrix: Matrix4Array, THREE: ThreeModule): voi
  * Other object types become empty Groups so the hierarchy is preserved.
  */
 export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: ThreeSceneOptions = {}): any {
-    const sample = { time: options.time };
+    const { time, frame, mode, useVelocities, velocityScale } = options;
+    const sample = { time, frame, mode, useVelocities, velocityScale };
     const root = new THREE.Group();
     root.name = file.path;
+    // Remembered so AbcPlayer reads frames with the same layout options.
+    root.userData.alembicSceneOptions = {
+        attributes: options.attributes,
+        computeNormals: options.computeNormals,
+        attributeNames: options.attributeNames,
+        colorSpace: options.colorSpace,
+        segmentsPerSpan: options.segmentsPerSpan,
+    };
+
+    const materials = new Map<string, AbcMaterial | undefined>();
+    const materialCache = (path: string): AbcMaterial | undefined => {
+        if (!materials.has(path)) {
+            materials.set(path, file.getObject(path) ? file.getMaterial(path) : undefined);
+        }
+        return materials.get(path);
+    };
 
     const build = (obj: AbcObject): any => {
         let node: any;
+        try {
+            node = buildNode(obj);
+        } catch (error) {
+            if (!options.onError) {
+                throw error;
+            }
+            options.onError(error, obj);
+            node = new THREE.Group();
+        }
+        node.name = obj.name;
+        node.userData.alembic = { path: obj.path, type: obj.type, schema: obj.schema };
+        for (const child of file.getChildren(obj.path)) {
+            node.add(build(child));
+        }
+        return node;
+    };
+
+    const buildNode = (obj: AbcObject): any => {
+        let node: any;
         if (obj.type === 'mesh' || obj.type === 'subd') {
             const attributes = options.attributes ?? DEFAULT_COLOR_ATTRIBUTES;
-            const geometry = toBufferGeometry(file.getMesh(obj.path, { ...sample, attributes }), THREE, options);
+            const mesh = file.getMesh(obj.path, { ...sample, attributes, groupByFaceSet: true });
+            const geometry = toBufferGeometry(mesh, THREE, options);
             const hasColors = Boolean(geometry.getAttribute('color'));
-            const material =
-                options.material ??
+            const defaultMaterial = () =>
                 new THREE.MeshStandardMaterial(hasColors ? { vertexColors: true } : { color: 0xb0b0b0 });
-            node = new THREE.Mesh(geometry, material);
+            let material = options.material;
+            if (!material && mesh.materialSlots) {
+                // One material per face set (spec 0003).
+                material = mesh.materialSlots.map((slot) => {
+                    const abcMaterial = slot.materialPath ? materialCache(slot.materialPath) : undefined;
+                    return options.createMaterial
+                        ? options.createMaterial({
+                              name: slot.name,
+                              faceSet: slot.faceSet,
+                              material: abcMaterial,
+                              mesh: obj.path,
+                          })
+                        : defaultMaterial();
+                });
+            }
+            node = new THREE.Mesh(geometry, material ?? defaultMaterial());
+            if (mesh.materialSlots) {
+                node.userData.alembicMaterialSlots = mesh.materialSlots;
+            }
         } else if (obj.type === 'points') {
             node = toPoints(file.getPoints(obj.path, sample), THREE, { material: options.pointsMaterial });
         } else if (obj.type === 'curves') {
@@ -244,11 +321,6 @@ export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: Thre
             if (obj.type === 'xform') {
                 applyMatrix(node, file.getTransform(obj.path, sample).local, THREE);
             }
-        }
-        node.name = obj.name;
-        node.userData.alembic = { path: obj.path, type: obj.type, schema: obj.schema };
-        for (const child of file.getChildren(obj.path)) {
-            node.add(build(child));
         }
         return node;
     };

@@ -4,11 +4,14 @@ export type { AbcErrorCode } from './errors';
 export type {
     AbcCamera,
     AbcCurves,
+    AbcFaceSet,
     AbcArrayData,
     AbcArrayValue,
     AbcFileInfo,
+    AbcMaterial,
     AbcMesh,
     AbcMeshAttribute,
+    AbcMeshFrame,
     AbcObject,
     AbcObjectType,
     AbcPoints,
@@ -16,6 +19,7 @@ export type {
     AbcPrimitive,
     AbcPropertyInfo,
     AbcScope,
+    AbcTimeSampling,
     AbcTransform,
     AbcUserProperties,
     AbcValue,
@@ -25,6 +29,8 @@ export type {
     Matrix4Array,
     SampleOptions,
 } from './types';
+export { AbcPlayer, createTransformClip } from './animation';
+export type { PlayerOptions, ThreeAnimationModule } from './animation';
 export { tessellateCurves, widthsPerVertex } from './curves';
 export type { TessellatedCurves, TessellateOptions } from './curves';
 export {

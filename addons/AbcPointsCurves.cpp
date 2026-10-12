@@ -3,6 +3,8 @@
 
 #include <Alembic/AbcGeom/All.h>
 
+#include <unordered_map>
+
 namespace AbcG = Alembic::AbcGeom;
 
 namespace abcjs {
@@ -134,6 +136,19 @@ std::string widthScope(const CurvesData& c, size_t numWidths, AbcG::GeometryScop
     return written.empty() ? "unknown" : written;
 }
 
+Alembic::Abc::ISampleSelector indexSelector(int64_t index)
+{
+    return Alembic::Abc::ISampleSelector(static_cast<Alembic::AbcCoreAbstract::index_t>(index));
+}
+
+// Moves xyz positions by velocity * dt.
+void applyVelocities(std::vector<float>& positions, const std::vector<float>& velocities, double dt)
+{
+    if (velocities.size() != positions.size()) return;
+    for (size_t i = 0; i < positions.size(); ++i)
+        positions[i] += static_cast<float>(velocities[i] * dt);
+}
+
 [[noreturn]] void malformed(const std::string& what, const std::string& path, size_t got, size_t expected)
 {
     throw AbcError(codes::MalformedData, "'" + path + "' has " + std::to_string(got) + " " + what + " but " +
@@ -142,14 +157,15 @@ std::string widthScope(const CurvesData& c, size_t numWidths, AbcG::GeometryScop
 
 } // namespace
 
-PointsData ReadPoints(const ArchiveData& data, const std::string& objectPath, double time)
+PointsData ReadPoints(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec)
 {
     const ObjectRecord& rec = requireType(data, objectPath, "points");
     return guarded("points '" + objectPath + "'", [&] {
         Alembic::Abc::IObject obj = ResolveObject(data, objectPath);
-        Alembic::Abc::ISampleSelector sel(time);
         AbcG::IPoints points(obj, Alembic::Abc::kWrapExisting);
         AbcG::IPointsSchema& schema = points.getSchema();
+        const SampleSpan span = SelectSamples(schema.getTimeSampling(), schema.getNumSamples(), spec);
+        const Alembic::Abc::ISampleSelector sel = indexSelector(span.i0);
         AbcG::IPointsSchema::Sample sample;
         schema.get(sample, sel);
 
@@ -183,19 +199,60 @@ PointsData ReadPoints(const ArchiveData& data, const std::string& objectPath, do
                 }
             }
         }
-        out.transform = WorldMatrix(obj, sel);
+
+        // Interpolation (spec 0004): blend each point with the same id in the next sample
+        // (or by index when there are no ids and the counts match); others use velocities.
+        bool interpolated = false;
+        if (span.blends()) {
+            AbcG::IPointsSchema::Sample next;
+            schema.get(next, indexSelector(span.i1));
+            std::vector<float> nextPositions;
+            appendVec3(next.getPositions(), nextPositions);
+            auto nextIds = next.getIds();
+            std::vector<int64_t> match(count, -1);
+            if (out.hasIds && nextIds && nextIds->size() * 3 == nextPositions.size()) {
+                std::unordered_map<uint64_t, size_t> byId;
+                for (size_t i = 0; i < nextIds->size(); ++i)
+                    byId[(*nextIds)[i]] = i;
+                for (size_t i = 0; i < count; ++i) {
+                    auto it = byId.find(out.ids[i]);
+                    if (it != byId.end()) match[i] = static_cast<int64_t>(it->second);
+                }
+            } else if (!out.hasIds && nextPositions.size() == out.positions.size()) {
+                for (size_t i = 0; i < count; ++i)
+                    match[i] = static_cast<int64_t>(i);
+            }
+            const float a = static_cast<float>(span.alpha);
+            const float dt = static_cast<float>((spec.time - span.t0) * spec.velocityScale);
+            for (size_t i = 0; i < count; ++i) {
+                for (size_t k = 0; k < 3; ++k) {
+                    float& p = out.positions[i * 3 + k];
+                    if (match[i] >= 0) {
+                        p = p * (1.0f - a) + nextPositions[static_cast<size_t>(match[i]) * 3 + k] * a;
+                        interpolated = true;
+                    } else if (spec.useVelocities && !out.velocities.empty()) {
+                        p += out.velocities[i * 3 + k] * dt;
+                    }
+                }
+            }
+        }
+        if (!interpolated && spec.useVelocities) {
+            applyVelocities(out.positions, out.velocities, (spec.time - span.t0) * spec.velocityScale);
+        }
+        out.transform = WorldMatrix(obj, spec);
         return out;
     });
 }
 
-CurvesData ReadCurves(const ArchiveData& data, const std::string& objectPath, double time)
+CurvesData ReadCurves(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec)
 {
     const ObjectRecord& rec = requireType(data, objectPath, "curves");
     return guarded("curves '" + objectPath + "'", [&] {
         Alembic::Abc::IObject obj = ResolveObject(data, objectPath);
-        Alembic::Abc::ISampleSelector sel(time);
         AbcG::ICurves curves(obj, Alembic::Abc::kWrapExisting);
         AbcG::ICurvesSchema& schema = curves.getSchema();
+        const SampleSpan span = SelectSamples(schema.getTimeSampling(), schema.getNumSamples(), spec);
+        const Alembic::Abc::ISampleSelector sel = indexSelector(span.i0);
         AbcG::ICurvesSchema::Sample sample;
         schema.get(sample, sel);
 
@@ -255,7 +312,30 @@ CurvesData ReadCurves(const ArchiveData& data, const std::string& objectPath, do
         if (normals.valid() && normals.getNumSamples() > 0) {
             appendVec3(normals.getExpandedValue(sel).getVals(), out.normals);
         }
-        out.transform = WorldMatrix(obj, sel);
+
+        // Interpolation (spec 0004) when the next sample has the same curves; else velocities.
+        bool interpolated = false;
+        if (span.blends()) {
+            AbcG::ICurvesSchema::Sample next;
+            schema.get(next, indexSelector(span.i1));
+            auto nextCounts = next.getCurvesNumVertices();
+            std::vector<float> nextPositions;
+            appendVec3(next.getPositions(), nextPositions);
+            const bool sameCurves = nextCounts && nextCounts->size() == out.vertexCounts.size() &&
+                                    std::equal(out.vertexCounts.begin(), out.vertexCounts.end(), nextCounts->get()) &&
+                                    nextPositions.size() == out.positions.size();
+            if (sameCurves) {
+                const float a = static_cast<float>(span.alpha);
+                for (size_t i = 0; i < out.positions.size(); ++i) {
+                    out.positions[i] = out.positions[i] * (1.0f - a) + nextPositions[i] * a;
+                }
+                interpolated = true;
+            }
+        }
+        if (!interpolated && spec.useVelocities) {
+            applyVelocities(out.positions, out.velocities, (spec.time - span.t0) * spec.velocityScale);
+        }
+        out.transform = WorldMatrix(obj, spec);
         return out;
     });
 }
