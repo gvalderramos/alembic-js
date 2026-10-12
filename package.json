@@ -17,6 +17,7 @@
     "build/alembic-js.node",
     "build/*.dll",
     "prebuilds/**/*.node",
+    "scripts/install.js",
     "addons",
     "CMakeLists.txt"
   ],
@@ -25,7 +26,7 @@
     "provenance": true
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "devDependencies": {
     "@eslint/js": "^9",
@@ -46,12 +47,15 @@
     "build:ts": "tsc",
     "rebuild": "cmake-js rebuild && tsc",
     "fixtures": "cmake-js compile --out build-tools --target generate_fixtures --CDALEMBIC_JS_BUILD_TOOLS=ON && node scripts/generate-fixtures.js",
-    "test": "tsc -p tsconfig.test.json && node scripts/run-tests.js",
+    "test": "node -e \"require('fs').rmSync('bin-test',{recursive:true,force:true})\" && tsc -p tsconfig.test.json && node scripts/run-tests.js",
     "lint": "eslint . && prettier --check \"{src,test,scripts,sandbox/src,sandbox/public}/**/*.{ts,js,html}\"",
     "format": "prettier --write \"{src,test,scripts,sandbox/src,sandbox/public}/**/*.{ts,js,html}\" && clang-format -i addons/*.cpp addons/*.h tools/*.cpp",
     "lint:cpp": "clang-format --dry-run --Werror addons/*.cpp addons/*.h tools/*.cpp",
     "prepack": "tsc",
-    "assets:blender": "node scripts/make-blender-assets.js"
+    "assets:blender": "node scripts/make-blender-assets.js",
+    "install": "node scripts/install.js",
+    "build:sdk": "bash scripts/ci/build-alembic.sh .deps/alembic-sdk 3.2.3 1.8.12",
+    "build:native:release": "node scripts/build-native-release.js"
   },
   "binary": {
     "napi_versions": [
