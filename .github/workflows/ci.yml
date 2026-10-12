@@ -19,7 +19,7 @@ env:
   IMATH_VERSION: '3.2.3'
   CLANG_FORMAT_VERSION: '22.1.8'
   # Node used inside the manylinux build containers (glibc 2.28).
-  NODE_VERSION: '22.12.0'
+  NODE_VERSION: '22.23.3'
   MACOSX_DEPLOYMENT_TARGET: '11.0'
   # Runner labels in one place (spec 0005): they change over time.
   LINUX_X64_RUNNER: ubuntu-latest

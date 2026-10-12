@@ -28,7 +28,9 @@ linux-*)
     ;;
 darwin-*)
     otool -L "$FILE"
-    otool -L "$FILE" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+    # The first entry after the file name is the library's own install name.
+    self="$(otool -D "$FILE" | tail -n 1)"
+    otool -L "$FILE" | tail -n +2 | awk '{print $1}' | grep -vxF "$self" | while read -r dep; do
         case "$dep" in /usr/lib/libc++*|/usr/lib/libSystem*) ;; *) fail "unexpected dependency $dep" ;; esac
     done
     lipo -info "$FILE"
