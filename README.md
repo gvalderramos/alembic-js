@@ -143,10 +143,13 @@ yarn fixtures
 - [x] Mesh / SubD geometry, transforms and cameras
 - [x] Sampling at a given time
 - [x] three.js bridge
-- [ ] Points and curves geometry
-- [ ] Face sets / materials
-- [ ] Velocity-based motion and animation helpers
-- [ ] Prebuilt binaries and CI matrix
+- [ ] Points and curves geometry ([spec](specs/0002-points-and-curves.md))
+- [ ] Face sets / materials ([spec](specs/0003-face-sets-and-materials.md))
+- [ ] Velocity-based motion and animation helpers ([spec](specs/0004-animation-and-velocity.md))
+- [ ] Prebuilt binaries and CI matrix ([spec](specs/0005-prebuilt-binaries-and-ci.md))
+- [ ] Attributes and properties: vertex colors, custom attributes, user properties ([spec](specs/0006-attributes-and-properties.md))
+- [ ] Test assets: real-world files for every feature ([spec](specs/0007-test-assets.md), [catalog](resource/README.md))
+- [ ] Alembic instancing (found while building the test assets; see spec 0007)
 
 ---
 
