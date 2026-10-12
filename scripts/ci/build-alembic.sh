@@ -23,6 +23,9 @@ COMMON=(
     -DCMAKE_POLICY_DEFAULT_CMP0091=NEW
     -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
 )
+# macOS: cross-compile (OSX_ARCHITECTURES=x86_64 on Apple Silicon) and target older macOS versions.
+if [ -n "${OSX_ARCHITECTURES:-}" ]; then COMMON+=(-DCMAKE_OSX_ARCHITECTURES="$OSX_ARCHITECTURES"); fi
+if [ -n "${MACOSX_DEPLOYMENT_TARGET:-}" ]; then COMMON+=(-DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET"); fi
 
 git clone --quiet --depth 1 --branch "v$IMATH_VERSION" https://github.com/AcademySoftwareFoundation/Imath.git "$WORK/imath"
 cmake -S "$WORK/imath" -B "$WORK/imath-build" "${COMMON[@]}" -DBUILD_TESTING=OFF -DIMATH_INSTALL_PKG_CONFIG=OFF

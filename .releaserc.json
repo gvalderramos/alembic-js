@@ -19,16 +19,20 @@
     ],
     "@semantic-release/release-notes-generator",
     [
-      "@semantic-release/npm",
+      "@semantic-release/exec",
       {
-        "npmPublish": true,
-        "tarballDir": "dist"
+        "verifyReleaseCmd": "node scripts/ci/check-version.js ${nextRelease.version}",
+        "prepareCmd": "node scripts/ci/stamp-tarball.js ci/alembic-js-0.0.0-ci.tgz ${nextRelease.version} dist",
+        "publishCmd": "npm publish dist/alembic-js-${nextRelease.version}.tgz --access public --provenance"
       }
     ],
     [
       "@semantic-release/github",
       {
-        "assets": [{ "path": "dist/*.tgz", "label": "npm package (prebuilt for linux-x64, win32-x64, darwin-arm64)" }]
+        "assets": [
+          { "path": "dist/*.tgz", "label": "npm package (prebuilt for 8 platforms)" },
+          { "path": "dist/SHA256SUMS", "label": "SHA-256 checksums" }
+        ]
       }
     ]
   ]

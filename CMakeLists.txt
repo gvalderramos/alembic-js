@@ -33,6 +33,17 @@ function(alembic_js_match_sdk_runtime target)
 endfunction()
 alembic_js_match_sdk_runtime(${PROJECT_NAME})
 
+# Portable, smaller binaries for prebuilds (spec 0005): bundle the C++ runtime on Linux so the addon
+# only needs libc, and strip symbols from Release builds.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(${PROJECT_NAME} PRIVATE -static-libstdc++ -static-libgcc $<$<CONFIG:Release>:-s>)
+elseif(APPLE)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND $<$<CONFIG:Release>:strip> $<$<CONFIG:Release>:-x> $<$<CONFIG:Release>:$<TARGET_FILE:${PROJECT_NAME}>>
+        COMMAND_EXPAND_LISTS
+    )
+endif()
+
 if(MSVC AND CMAKE_JS_NODELIB_DEF AND CMAKE_JS_NODELIB_TARGET)
     execute_process(COMMAND ${CMAKE_AR} /def:${CMAKE_JS_NODELIB_DEF} /out:${CMAKE_JS_NODELIB_TARGET})
 endif()

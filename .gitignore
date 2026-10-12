@@ -64,3 +64,4 @@ build-tools/
 dist/
 prebuilds/
 resource/blender/large_mesh.abc
+/ci/

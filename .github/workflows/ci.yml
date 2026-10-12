@@ -18,6 +18,12 @@ env:
   ALEMBIC_VERSION: '1.8.12'
   IMATH_VERSION: '3.2.3'
   CLANG_FORMAT_VERSION: '22.1.8'
+  # Node used inside the manylinux build containers (glibc 2.28).
+  NODE_VERSION: '22.23.3'
+  MACOSX_DEPLOYMENT_TARGET: '11.0'
+  # Runner labels in one place (spec 0005): they change over time.
+  LINUX_X64_RUNNER: ubuntu-latest
+  LINUX_ARM64_RUNNER: ubuntu-24.04-arm
 
 jobs:
   lint:
@@ -39,6 +45,7 @@ jobs:
           pip install --quiet "clang-format==${CLANG_FORMAT_VERSION}"
           yarn lint:cpp
 
+  # Unit tests on every supported Node version (native build on the host).
   test:
     name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
@@ -46,24 +53,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04, node: 20 }
-          - { os: ubuntu-22.04, node: 22, prebuild: linux-x64, sandbox: true }
+          - { os: ubuntu-22.04, node: 22, sandbox: true }
           - { os: ubuntu-22.04, node: 24 }
-          - { os: windows-2022, node: 22, prebuild: win32-x64 }
-          - { os: macos-14, node: 22, prebuild: darwin-arm64 }
+          - { os: ubuntu-22.04, node: 26 }
+          - { os: windows-2022, node: 22 }
+          - { os: windows-2022, node: 26 }
+          - { os: macos-14, node: 22 }
+          - { os: macos-14, node: 26 }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: yarn
-
       - id: alembic
         uses: ./.github/actions/setup-alembic
         with:
           alembic-version: ${{ env.ALEMBIC_VERSION }}
           imath-version: ${{ env.IMATH_VERSION }}
-
       - run: yarn install --frozen-lockfile
       - name: Build
         shell: bash
@@ -72,7 +79,6 @@ jobs:
           yarn build:ts
       - name: Unit tests
         run: yarn test
-
       - name: Sandbox smoke test
         if: matrix.sandbox
         working-directory: sandbox
@@ -82,35 +88,83 @@ jobs:
           yarn inspect
           yarn export
 
-      - name: Upload prebuilt addon
-        if: matrix.prebuild
-        uses: actions/upload-artifact@v7
+  # One prebuilt addon per target (spec 0005).
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64, runner: ubuntu-latest, image: 'quay.io/pypa/manylinux_2_28_x86_64' }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm, image: 'quay.io/pypa/manylinux_2_28_aarch64' }
+          - { target: linux-x64-musl, runner: ubuntu-latest, image: 'node:22-alpine' }
+          - { target: linux-arm64-musl, runner: ubuntu-24.04-arm, image: 'node:22-alpine' }
+          - { target: darwin-arm64, runner: macos-14 }
+          - { target: darwin-x64, runner: macos-14, osx-arch: x86_64 }
+          - { target: win32-x64, runner: windows-2022 }
+          - { target: win32-arm64, runner: windows-11-arm }
+    steps:
+      - uses: actions/checkout@v7
+
+      # Linux: build inside the target's container (glibc 2.28 or musl) with `docker run`.
+      - name: Restore Alembic SDK (Linux)
+        if: matrix.image
+        uses: actions/cache@v6
         with:
-          name: prebuild-${{ matrix.prebuild }}
+          path: .deps/alembic-sdk-${{ matrix.target }}
+          key: alembic-sdk-${{ matrix.target }}-${{ matrix.image }}-alembic${{ env.ALEMBIC_VERSION }}-imath${{ env.IMATH_VERSION }}-v1
+      - name: Build in container
+        if: matrix.image
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w \
+            -e ALEMBIC_VERSION -e IMATH_VERSION -e NODE_VERSION \
+            "${{ matrix.image }}" sh scripts/ci/build-linux.sh "${{ matrix.target }}"
+
+      # macOS and Windows: build on the runner.
+      - uses: actions/setup-node@v7
+        if: '!matrix.image'
+        with:
+          node-version: 22
+          cache: yarn
+      - id: alembic
+        if: '!matrix.image'
+        uses: ./.github/actions/setup-alembic
+        with:
+          alembic-version: ${{ env.ALEMBIC_VERSION }}
+          imath-version: ${{ env.IMATH_VERSION }}
+          osx-architectures: ${{ matrix.osx-arch }}
+      - name: Build on runner
+        if: '!matrix.image'
+        shell: bash
+        env:
+          OSX_ARCHITECTURES: ${{ matrix.osx-arch }}
+        run: |
+          yarn install --frozen-lockfile
+          extra=()
+          if [ -n "$OSX_ARCHITECTURES" ]; then extra+=(--arch x64 --CDCMAKE_OSX_ARCHITECTURES="$OSX_ARCHITECTURES"); fi
+          yarn build:native --CDCMAKE_PREFIX_PATH="${{ steps.alembic.outputs.prefix }}" "${extra[@]}"
+          bash scripts/ci/check-binary.sh build/alembic-js.node "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prebuild-${{ matrix.target }}
           path: build/alembic-js.node
           if-no-files-found: error
 
-  release:
-    name: Package & release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, test]
+  # Packs the npm tarball once, with every prebuilt addon.
+  package:
+    name: Package
+    needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      id-token: write # npm provenance
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      # No dependency cache here: this job publishes, so it must not restore caches other branches could write.
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - run: yarn install --frozen-lockfile
+          cache: yarn
+      - run: yarn install --frozen-lockfile --ignore-scripts
       - run: yarn build:ts
-
       - uses: actions/download-artifact@v8
         with:
           pattern: prebuild-*
@@ -122,13 +176,116 @@ jobs:
             mkdir -p "$target"
             cp "$dir/alembic-js.node" "$target/"
           done
-          find prebuilds -type f
-          for target in linux-x64 win32-x64 darwin-arm64; do
-            test -f "prebuilds/$target/alembic-js.node" || { echo "Missing prebuild for $target"; exit 1; }
-          done
+          find prebuilds -type f | sort
+          test "$(ls prebuilds | wc -l)" -eq 8 || { echo "Expected 8 prebuilds"; exit 1; }
+      - name: Pack
+        run: |
+          npm version 0.0.0-ci --no-git-tag-version
+          mkdir -p ci
+          npm pack --pack-destination ci --ignore-scripts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package
+          path: ci/alembic-js-0.0.0-ci.tgz
+          if-no-files-found: error
 
+  # Installs the packed tarball on every target, without a compiler (spec 0005).
+  verify:
+    name: Verify ${{ matrix.target }}
+    needs: package
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # glibc 2.28 (Rocky Linux 8) proves the manylinux baseline.
+          - { target: linux-x64, runner: ubuntu-latest, image: 'rockylinux/rockylinux:8', node-arch: x64 }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm, image: 'rockylinux/rockylinux:8', node-arch: arm64 }
+          - { target: linux-x64-musl, runner: ubuntu-latest, image: 'node:22-alpine' }
+          - { target: linux-arm64-musl, runner: ubuntu-24.04-arm, image: 'node:22-alpine' }
+          - { target: darwin-arm64, runner: macos-14 }
+          - { target: darwin-x64, runner: macos-14, node-arch: x64 }
+          - { target: win32-x64, runner: windows-2022 }
+          - { target: win32-arm64, runner: windows-11-arm }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: ci
+      - name: Verify in container
+        if: matrix.image
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w -e NODE_VERSION "${{ matrix.image }}" sh -c '
+            set -e
+            if ! command -v node >/dev/null; then
+              command -v xz >/dev/null || dnf install -y -q xz
+              curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-${{ matrix.node-arch }}.tar.xz" | tar -xJ -C /opt
+              export PATH="/opt/node-v$NODE_VERSION-linux-${{ matrix.node-arch }}/bin:$PATH"
+            fi
+            mkdir -p /tmp/smoke && cd /tmp/smoke && npm init -y >/dev/null
+            npm install --no-audit --no-fund /w/ci/alembic-js-0.0.0-ci.tgz
+            node /w/scripts/ci/smoke.js /w'
+      - uses: actions/setup-node@v7
+        if: '!matrix.image'
+        with:
+          node-version: 22
+          architecture: ${{ matrix.node-arch }}
+      - name: Verify on runner
+        if: '!matrix.image'
+        shell: bash
+        run: |
+          repo="$PWD"
+          mkdir -p "$RUNNER_TEMP/smoke" && cd "$RUNNER_TEMP/smoke" && npm init -y >/dev/null
+          npm install --no-audit --no-fund "$repo/ci/alembic-js-0.0.0-ci.tgz"
+          node -p "process.platform + '-' + process.arch"
+          node "$repo/scripts/ci/smoke.js" "$repo"
+      - name: Verify in Electron
+        if: matrix.target == 'linux-x64'
+        run: |
+          mkdir -p "$RUNNER_TEMP/electron" && cd "$RUNNER_TEMP/electron" && npm init -y >/dev/null
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE/ci/alembic-js-0.0.0-ci.tgz" electron@38
+          ELECTRON_RUN_AS_NODE=1 npx electron "$GITHUB_WORKSPACE/scripts/ci/smoke.js" "$GITHUB_WORKSPACE"
+
+  release:
+    name: Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write # npm provenance and trusted publishing
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # No dependency cache here: this job publishes, so it must not restore caches other branches could write.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+      # Trusted publishing (OIDC) needs npm >= 11.5.1.
+      - run: npm install --global npm@^11.5.1
+      - uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: ci
+      - name: Record existing tags
+        run: git tag --list 'v*' | sort > "$RUNNER_TEMP/tags-before"
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npx --yes semantic-release@24
+          # Optional: without NPM_TOKEN, npm publishes with trusted publishing (OIDC).
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx --yes -p semantic-release@24 -p @semantic-release/exec@6 semantic-release
+      - name: Remove tags left by a failed release
+        if: failure()
+        run: |
+          git fetch --tags --force
+          git tag --list 'v*' | sort > "$RUNNER_TEMP/tags-after"
+          for tag in $(comm -13 "$RUNNER_TEMP/tags-before" "$RUNNER_TEMP/tags-after"); do
+            echo "Deleting $tag"
+            git push origin ":refs/tags/$tag"
+          done

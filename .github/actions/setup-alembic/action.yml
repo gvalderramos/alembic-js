@@ -8,6 +8,10 @@ inputs:
   imath-version:
     description: Imath version without the leading "v", e.g. 3.2.3
     required: true
+  osx-architectures:
+    description: macOS only, e.g. x86_64 to cross-compile on Apple Silicon (default the runner's)
+    required: false
+    default: ''
 
 outputs:
   prefix:
@@ -29,8 +33,10 @@ runs:
       uses: actions/cache@v6
       with:
         path: ${{ steps.paths.outputs.prefix }}
-        key: alembic-sdk-${{ runner.os }}-${{ runner.arch }}-alembic${{ inputs.alembic-version }}-imath${{ inputs.imath-version }}-v2
+        key: alembic-sdk-${{ runner.os }}-${{ runner.arch }}-alembic${{ inputs.alembic-version }}-imath${{ inputs.imath-version }}-${{ inputs.osx-architectures }}-macos${{ env.MACOSX_DEPLOYMENT_TARGET }}-v3
 
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
+      env:
+        OSX_ARCHITECTURES: ${{ inputs.osx-architectures }}
       run: bash scripts/ci/build-alembic.sh "${{ steps.paths.outputs.prefix }}" "${{ inputs.imath-version }}" "${{ inputs.alembic-version }}"
