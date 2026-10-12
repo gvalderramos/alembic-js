@@ -29,16 +29,16 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "@eslint/js": "^9",
-    "@types/node": "^22.15.18",
+    "@eslint/js": "^10",
+    "@types/node": "^26.6.5",
     "@types/three": "^0.170.0",
-    "cmake-js": "^7.3.1",
-    "eslint": "^9",
-    "globals": "^15",
+    "cmake-js": "^8.0.0",
+    "eslint": "^10",
+    "globals": "^17",
     "node-addon-api": "^8.3.1",
     "prettier": "^3",
-    "three": "^0.170.0",
-    "typescript": "^5.8.3",
+    "three": "^0.186.1",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8"
   },
   "scripts": {
