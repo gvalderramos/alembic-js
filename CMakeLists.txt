@@ -9,7 +9,7 @@ option(ALEMBIC_JS_BUILD_TOOLS "Build the test fixture generator (tools/)" OFF)
 message(STATUS "cmake prefix path: ${CMAKE_PREFIX_PATH}")
 find_package(Alembic REQUIRED)
 
-add_definitions(-DNAPI_VERSION=10 -DNAPI_CPP_EXCEPTIONS)
+add_definitions(-DNAPI_VERSION=8 -DNAPI_CPP_EXCEPTIONS)
 include_directories(${CMAKE_JS_INC} "addons")
 file(GLOB SOURCE_FILES "addons/*.cpp" "addons/*.h")
 
