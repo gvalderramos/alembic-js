@@ -23,11 +23,25 @@ export interface LoadedScene {
 export function loadScene(abcPath: string, time = 0): LoadedScene {
     const file = AbcFile.open(abcPath);
     const brass = new THREE.MeshStandardMaterial({ color: 0xc8a165, metalness: 0.6, roughness: 0.35 });
+    // Face sets get one material each: the AbcMaterial's base color when assigned, else a palette color.
+    const palette = [0xe07a5f, 0x81b29a, 0xf2cc8f, 0x3d85c6, 0xb07cc6, 0x6cc4c4];
+    let slotIndex = 0;
+    const root = buildThreeScene(file, THREE, {
+        time,
+        onError: (error, object) => console.warn(`Skipping ${object.path}: ${(error as Error).message}`),
+        createMaterial: ({ material }) => {
+            const params = material?.parameters['*.surface'] ?? Object.values(material?.parameters ?? {})[0];
+            const base = (params?.base_color ?? params?.diffuse_color ?? params?.color) as number[] | undefined;
+            const color = base
+                ? new THREE.Color(base[0], base[1], base[2])
+                : new THREE.Color(palette[slotIndex++ % palette.length]);
+            return new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+        },
+    }) as THREE.Group;
     // Default materials show vertex colors (Cd/Col) when the file has them; use brass for the rest.
-    const root = buildThreeScene(file, THREE, { time }) as THREE.Group;
     root.traverse((node) => {
         const mesh = node as THREE.Mesh;
-        if (mesh.isMesh && !mesh.geometry.getAttribute('color')) mesh.material = brass;
+        if (mesh.isMesh && !Array.isArray(mesh.material) && !mesh.geometry.getAttribute('color')) mesh.material = brass;
     });
     root.name = path.basename(abcPath);
     root.updateMatrixWorld(true);

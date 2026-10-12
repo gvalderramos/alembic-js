@@ -58,6 +58,35 @@
                 left: 12px;
                 color: #9aa0a6;
             }
+            #timeline {
+                position: absolute;
+                bottom: 36px;
+                left: 12px;
+                right: 12px;
+                display: none;
+                align-items: center;
+                gap: 10px;
+                background: rgba(20, 22, 26, 0.85);
+                border: 1px solid #333;
+                border-radius: 6px;
+                padding: 6px 10px;
+            }
+            #timeline input {
+                flex: 1;
+            }
+            #timeline button {
+                background: #2b2f36;
+                color: #e6e6e6;
+                border: 1px solid #444;
+                border-radius: 4px;
+                padding: 2px 10px;
+                cursor: pointer;
+            }
+            #time {
+                font-variant-numeric: tabular-nums;
+                min-width: 120px;
+                text-align: right;
+            }
         </style>
         <script type="importmap">
             { "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
@@ -67,6 +96,9 @@
         <div id="panel">
             <h1>alembic-js sandbox</h1>
             <div id="info">Loading…</div>
+        </div>
+        <div id="timeline">
+            <button id="play">Play</button><input id="scrub" type="range" step="any" /><span id="time"></span>
         </div>
         <div id="status"></div>
         <script type="module">
@@ -138,6 +170,90 @@
             });
             document.getElementById('status').textContent =
                 `${triangles.toLocaleString()} triangles · drag to orbit, scroll to zoom`;
+
+            // Animation (spec 0004): the server samples frames with AbcPlayer; the page applies them.
+            const byPath = new Map();
+            gltf.scene.traverse((n) => {
+                if (n.userData.alembic?.path) byPath.set(n.userData.alembic.path, n);
+            });
+            const decode = (b64, Type) => {
+                const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+                return new Type(bytes.buffer);
+            };
+            const applyFrame = ({ objects }) => {
+                for (const [path, data] of Object.entries(objects)) {
+                    const node = byPath.get(path);
+                    if (!node) continue;
+                    if (data.matrix) {
+                        new THREE.Matrix4()
+                            .fromArray(data.matrix)
+                            .decompose(node.position, node.quaternion, node.scale);
+                    } else if (data.positions && node.geometry) {
+                        const geometry = node.geometry;
+                        const positions = decode(data.positions, Float32Array);
+                        const current = geometry.getAttribute('position');
+                        if (current && current.array.length === positions.length && !data.indices) {
+                            current.array.set(positions);
+                            current.needsUpdate = true;
+                        } else {
+                            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                        }
+                        if (data.normals)
+                            geometry.setAttribute(
+                                'normal',
+                                new THREE.BufferAttribute(decode(data.normals, Float32Array), 3),
+                            );
+                        if (data.indices)
+                            geometry.setIndex(new THREE.BufferAttribute(decode(data.indices, Uint32Array), 1));
+                        geometry.computeBoundingSphere();
+                    }
+                }
+            };
+
+            if (info.hasAnimation) {
+                const timeline = document.getElementById('timeline');
+                const scrub = document.getElementById('scrub');
+                const label = document.getElementById('time');
+                const play = document.getElementById('play');
+                timeline.style.display = 'flex';
+                scrub.min = info.startTime;
+                scrub.max = info.endTime;
+                let time = info.startTime;
+                let playing = false;
+                let pending = false;
+                const show = async (t) => {
+                    time = t;
+                    scrub.value = t;
+                    label.textContent = `${t.toFixed(3)} s${info.fps ? ` · frame ${(t * info.fps).toFixed(1)}` : ''}`;
+                    if (pending) return; // drop frames while the previous one is loading
+                    pending = true;
+                    try {
+                        applyFrame(await fetch(`/frame?time=${t}`).then((r) => r.json()));
+                    } finally {
+                        pending = false;
+                    }
+                };
+                scrub.addEventListener('input', () => show(Number(scrub.value)));
+                play.addEventListener('click', () => {
+                    playing = !playing;
+                    play.textContent = playing ? 'Pause' : 'Play';
+                });
+                let last = performance.now();
+                const tick = () => {
+                    const now = performance.now(); // wall clock: rAF timestamps lag when the page is throttled
+                    const delta = (now - last) / 1000;
+                    last = now;
+                    if (playing) {
+                        const duration = info.endTime - info.startTime;
+                        let t = time + delta;
+                        if (t > info.endTime) t = info.startTime + ((t - info.startTime) % (duration || 1));
+                        show(t); // the clock keeps running; frames are dropped while one is loading
+                    }
+                    requestAnimationFrame(tick);
+                };
+                requestAnimationFrame(tick);
+                show(time);
+            }
 
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;

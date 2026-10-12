@@ -1,15 +1,19 @@
 import * as path from 'path';
 
 import { AlembicError, wrapNativeError } from './errors';
-import { loadNative, type NativeArchive } from './native';
+import { loadNative, type NativeArchive, type NativeSampleOptions } from './native';
 import type {
     AbcCamera,
     AbcCurves,
+    AbcFaceSet,
     AbcFileInfo,
+    AbcMaterial,
     AbcMesh,
+    AbcMeshFrame,
     AbcObject,
     AbcPoints,
     AbcPropertyInfo,
+    AbcTimeSampling,
     AbcTransform,
     AbcUserProperties,
     AbcValue,
@@ -94,7 +98,27 @@ export class AbcFile {
     }
 
     getInfo(): AbcFileInfo {
-        return this.call(() => this.native.getInfo());
+        const info = this.call(() => this.native.getInfo());
+        if (info.fps) {
+            info.frameRange = { start: info.startTime * info.fps, end: info.endTime * info.fps };
+        }
+        return info;
+    }
+
+    /** Time sampling of an object, or undefined for objects without samples. */
+    getTimeSampling(objectPath: string): AbcTimeSampling | undefined {
+        const obj = this.getObject(objectPath);
+        if (!obj) {
+            throw new AlembicError(
+                'ERR_ABC_OBJECT_NOT_FOUND',
+                `Object '${objectPath}' does not exist in ${this.path}`,
+                {
+                    file: this.path,
+                    objectPath,
+                },
+            );
+        }
+        return obj.timeSampling;
     }
 
     /** Every object in the archive, depth-first. */
@@ -143,8 +167,74 @@ export class AbcFile {
 
     /** Triangulated geometry of a 'mesh' or 'subd' object. */
     getMesh(objectPath: string, options: MeshOptions = {}): AbcMesh {
-        const { time, attributes, layout } = options;
-        return this.call(() => this.native.getMesh(objectPath, time, { attributes, layout }), objectPath);
+        const [time, sample] = this.sample(options);
+        const { attributes, layout, groupByFaceSet, triangleToFace } = options;
+        return this.call(
+            () =>
+                this.native.getMesh(objectPath, time, {
+                    ...sample,
+                    attributes,
+                    layout,
+                    groupByFaceSet,
+                    triangleToFace,
+                }),
+            objectPath,
+        );
+    }
+
+    /** Same as getMesh() but read on a worker thread. */
+    async getMeshAsync(objectPath: string, options: MeshOptions = {}): Promise<AbcMesh> {
+        const [time, sample] = this.sample(options);
+        const { attributes, layout, groupByFaceSet, triangleToFace } = options;
+        try {
+            return await this.native.getMeshAsync(objectPath, time, {
+                ...sample,
+                attributes,
+                layout,
+                groupByFaceSet,
+                triangleToFace,
+            });
+        } catch (error) {
+            throw wrapNativeError(error, { file: this.path, objectPath });
+        }
+    }
+
+    /**
+     * Positions (and normals and requested attributes) at a time, in the vertex layout of the last
+     * getMesh() with the same `attributes`/`layout` options, skipping triangulation. Throws
+     * ERR_ABC_TOPOLOGY_CHANGED when the topology differs; call getMesh() again then.
+     */
+    getMeshFrame(objectPath: string, options: MeshOptions = {}): AbcMeshFrame {
+        const [time, sample] = this.sample(options);
+        const { attributes, layout, groupByFaceSet, triangleToFace } = options;
+        return this.call(
+            () =>
+                this.native.getMeshFrame(objectPath, time, {
+                    ...sample,
+                    attributes,
+                    layout,
+                    groupByFaceSet,
+                    triangleToFace,
+                }),
+            objectPath,
+        );
+    }
+
+    /** Same as getMeshFrame() but read on a worker thread. */
+    async getMeshFrameAsync(objectPath: string, options: MeshOptions = {}): Promise<AbcMeshFrame> {
+        const [time, sample] = this.sample(options);
+        const { attributes, layout, groupByFaceSet, triangleToFace } = options;
+        try {
+            return await this.native.getMeshFrameAsync(objectPath, time, {
+                ...sample,
+                attributes,
+                layout,
+                groupByFaceSet,
+                triangleToFace,
+            });
+        } catch (error) {
+            throw wrapNativeError(error, { file: this.path, objectPath });
+        }
     }
 
     /** Geometry of every mesh/subd object in the archive. */
@@ -156,16 +246,19 @@ export class AbcFile {
 
     /** Local and world matrices of any object (local is identity for non-xform objects). */
     getTransform(objectPath: string, options: SampleOptions = {}): AbcTransform {
-        return this.call(() => this.native.getTransform(objectPath, options.time), objectPath);
+        const [time, sample] = this.sample(options);
+        return this.call(() => this.native.getTransform(objectPath, time, sample), objectPath);
     }
 
     getCamera(objectPath: string, options: SampleOptions = {}): AbcCamera {
-        return this.call(() => this.native.getCamera(objectPath, options.time), objectPath);
+        const [time, sample] = this.sample(options);
+        return this.call(() => this.native.getCamera(objectPath, time, sample), objectPath);
     }
 
     /** Points of a 'points' object (particles, point clouds). */
     getPoints(objectPath: string, options: SampleOptions = {}): AbcPoints {
-        return this.call(() => this.native.getPoints(objectPath, options.time), objectPath);
+        const [time, sample] = this.sample(options);
+        return this.call(() => this.native.getPoints(objectPath, time, sample), objectPath);
     }
 
     /** Every 'points' object in the archive. */
@@ -177,7 +270,8 @@ export class AbcFile {
 
     /** Control vertices and curve data of a 'curves' object (use tessellateCurves() to evaluate them). */
     getCurves(objectPath: string, options: SampleOptions = {}): AbcCurves {
-        return this.call(() => this.native.getCurves(objectPath, options.time), objectPath);
+        const [time, sample] = this.sample(options);
+        return this.call(() => this.native.getCurves(objectPath, time, sample), objectPath);
     }
 
     /** Every 'curves' object in the archive. */
@@ -185,6 +279,29 @@ export class AbcFile {
         return this.requireObjects()
             .filter((obj) => obj.type === 'curves')
             .map((obj) => this.getCurves(obj.path, options));
+    }
+
+    /** Face sets of a mesh or subd (spec 0003). */
+    getFaceSets(objectPath: string, options: SampleOptions = {}): AbcFaceSet[] {
+        const [time, sample] = this.sample(options);
+        return this.call(() => this.native.getFaceSets(objectPath, time, sample), objectPath);
+    }
+
+    /** AbcMaterial assignment of an object, inherited from its ancestors; null when there is none. */
+    getMaterialAssignment(objectPath: string): string | null {
+        return this.call(() => this.native.getMaterialAssignment(objectPath), objectPath);
+    }
+
+    /** An AbcMaterial object (or an object with a local material), flattened with its parents. */
+    getMaterial(materialPath: string): AbcMaterial {
+        return this.call(() => this.native.getMaterial(materialPath), materialPath);
+    }
+
+    /** Every material object in the archive. */
+    getMaterials(): AbcMaterial[] {
+        return this.requireObjects()
+            .filter((obj) => obj.type === 'material')
+            .map((obj) => this.getMaterial(obj.path));
     }
 
     /** Lists an object's properties without reading their values. */
@@ -221,6 +338,29 @@ export class AbcFile {
     /** User properties as a plain object; one-element arrays (as written by Blender) are unwrapped. */
     getUserProperties(objectPath: string, options: SampleOptions = {}): AbcUserProperties {
         return this.call(() => this.native.getUserProperties(objectPath, options.time), objectPath);
+    }
+
+    /** Resolves `time`/`frame` and the sample options passed to native readers. */
+    private sample(options: SampleOptions): [number | undefined, NativeSampleOptions] {
+        let time = options.time;
+        if (options.frame !== undefined) {
+            if (time !== undefined) {
+                throw new AlembicError('ERR_ABC_INVALID_ARGUMENT', 'Pass either `time` or `frame`, not both', {
+                    file: this.path,
+                });
+            }
+            const fps = this.getInfo().fps;
+            if (!fps) {
+                throw new AlembicError(
+                    'ERR_ABC_INVALID_ARGUMENT',
+                    `'${this.path}' has no uniform frame rate; pass \`time\` (seconds) instead of \`frame\``,
+                    { file: this.path },
+                );
+            }
+            time = options.frame / fps;
+        }
+        const { mode, useVelocities, velocityScale } = options;
+        return [time, { mode, useVelocities, velocityScale }];
     }
 
     private indexObjects(): void {

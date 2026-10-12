@@ -7,6 +7,7 @@
 
 #include <Alembic/AbcCoreOgawa/All.h>
 #include <Alembic/AbcGeom/All.h>
+#include <Alembic/AbcMaterial/All.h>
 
 #include <filesystem>
 #include <iostream>
@@ -311,6 +312,163 @@ void pointsAndCurves(const std::filesystem::path& dir)
                 AbcG::OFloatGeomParam::Sample());
 }
 
+// Animation (spec 0004). Frames are at 24 fps starting at 1/24 s unless noted.
+// /spin                 xform: rotate 0, 90, 180 degrees about Y and translate x = 0, 1, 2 (3 frames)
+// /wave/waveShape       4x4 grid, constant topology; point i has y = (frame - 1) * (i % 4) * 0.1 (3 frames)
+// /sim/simShape         changing topology: frame f has f quads in a row; velocity (0, 1, 0) per point (3 frames)
+// /particles            ids {0, 1} on frame 1, {0, 1, 2} on frame 2; x = id, y = frame - 1; velocity (0, 24, 0)
+// /acyclic              xform at acyclic times 0, 0.1, 0.35 with x = 0, 1, 2
+// /thirty               xform at 30 fps (2 samples from 1/30 s) with x = 0, 10
+void animation(const std::filesystem::path& dir)
+{
+    namespace AbcA = Alembic::AbcCoreAbstract;
+    Abc::OArchive archive = createArchive(dir / "animation.abc");
+    Abc::OObject top = archive.getTop();
+    const uint32_t fps24 = archive.addTimeSampling(AbcA::TimeSampling(1.0 / 24.0, 1.0 / 24.0));
+    const uint32_t fps30 = archive.addTimeSampling(AbcA::TimeSampling(1.0 / 30.0, 1.0 / 30.0));
+    const std::vector<double> acyclicTimes = {0.0, 0.1, 0.35};
+    const uint32_t acyclic = archive.addTimeSampling(
+        AbcA::TimeSampling(AbcA::TimeSamplingType(AbcA::TimeSamplingType::kAcyclic), acyclicTimes));
+
+    AbcG::OXform spin(top, "spin", fps24);
+    for (int f = 0; f < 3; ++f) {
+        AbcG::XformSample sample;
+        sample.setTranslation(Imath::V3d(f, 0, 0));
+        sample.setRotation(Imath::V3d(0, 1, 0), 90.0 * f);
+        spin.getSchema().set(sample);
+    }
+
+    AbcG::OXform wave = writeXform(top, "wave", {0, 0, 0});
+    AbcG::OPolyMesh waveShape(wave, "waveShape", fps24);
+    std::vector<int32_t> gridIndices, gridCounts;
+    for (int j = 0; j < 3; ++j) {
+        for (int i = 0; i < 3; ++i) {
+            const int a = j * 4 + i;
+            gridIndices.insert(gridIndices.end(), {a, a + 4, a + 5, a + 1}); // clockwise from +Y
+            gridCounts.push_back(4);
+        }
+    }
+    for (int f = 0; f < 3; ++f) {
+        std::vector<Imath::V3f> P;
+        for (int i = 0; i < 16; ++i)
+            P.push_back(Imath::V3f(i % 4, f * (i % 4) * 0.1f, i / 4));
+        waveShape.getSchema().set(AbcG::OPolyMeshSchema::Sample(
+            AbcG::P3fArraySample(P), Abc::Int32ArraySample(gridIndices), Abc::Int32ArraySample(gridCounts)));
+    }
+
+    AbcG::OXform sim = writeXform(top, "sim", {0, 0, 0});
+    AbcG::OPolyMesh simShape(sim, "simShape", fps24);
+    for (int f = 1; f <= 3; ++f) {
+        std::vector<Imath::V3f> P;
+        for (int i = 0; i <= f; ++i) {
+            P.push_back(Imath::V3f(i, 0, 0));
+            P.push_back(Imath::V3f(i, 0, 1));
+        }
+        std::vector<int32_t> indices, counts;
+        for (int q = 0; q < f; ++q) {
+            indices.insert(indices.end(), {2 * q, 2 * q + 1, 2 * q + 3, 2 * q + 2});
+            counts.push_back(4);
+        }
+        const std::vector<Imath::V3f> velocities(P.size(), Imath::V3f(0, 1, 0));
+        AbcG::OPolyMeshSchema::Sample sample{AbcG::P3fArraySample(P), Abc::Int32ArraySample(indices),
+                                             Abc::Int32ArraySample(counts)};
+        sample.setVelocities(Abc::V3fArraySample(velocities));
+        simShape.getSchema().set(sample);
+    }
+
+    AbcG::OPoints particles(top, "particles", fps24);
+    for (int f = 1; f <= 2; ++f) {
+        std::vector<uint64_t> ids;
+        std::vector<Imath::V3f> P, velocities;
+        for (int id = 0; id <= f; ++id) {
+            ids.push_back(id);
+            P.push_back(Imath::V3f(id, f - 1, 0));
+            velocities.push_back(Imath::V3f(0, 24, 0));
+        }
+        particles.getSchema().set(AbcG::OPointsSchema::Sample(AbcG::P3fArraySample(P), Abc::UInt64ArraySample(ids),
+                                                              Abc::V3fArraySample(velocities)));
+    }
+
+    AbcG::OXform acyclicXform(top, "acyclic", acyclic);
+    AbcG::OXform thirty(top, "thirty", fps30);
+    for (int i = 0; i < 3; ++i) {
+        AbcG::XformSample sample;
+        sample.setTranslation(Imath::V3d(i, 0, 0));
+        acyclicXform.getSchema().set(sample);
+    }
+    for (int i = 0; i < 2; ++i) {
+        AbcG::XformSample sample;
+        sample.setTranslation(Imath::V3d(i * 10, 0, 0));
+        thirty.getSchema().set(sample);
+    }
+}
+
+// Face sets and materials (spec 0003).
+// /cube/cubeShape     face-varying cube; face sets sides {0,1,2,3}, bottom {4}, top {5} (exclusive)
+//                     assigned /materials/red; face set "top" assigned /materials/red/blue
+// /overlap/quadShape  2x1 quads; non-exclusive face sets a {0} and b {0, 1}
+// /assigned           xform assigned /materials/red/blue; /assigned/childShape inherits it
+// /materials/red      target "*", surface "standard_surface", base_color (1,0,0), roughness 0.5
+// /materials/red/blue child material: inherits red (AbcMaterial inheritance is by nesting),
+//                     overrides base_color (0,0,1)
+// /bad/quadShape      face set referencing face 5 of a 1-face mesh
+void faceSetsAndMaterials(const std::filesystem::path& dir)
+{
+    namespace AbcM = Alembic::AbcMaterial;
+    Abc::OArchive archive = createArchive(dir / "face_sets.abc");
+    Abc::OObject top = archive.getTop();
+
+    auto faceSet = [](AbcG::OPolyMesh& mesh, const std::string& name, const std::vector<int32_t>& faces,
+                      bool exclusive) -> AbcG::OFaceSet& {
+        AbcG::OFaceSet& set = mesh.getSchema().createFaceSet(name);
+        set.getSchema().set(AbcG::OFaceSetSchema::Sample(Abc::Int32ArraySample(faces)));
+        set.getSchema().setFaceExclusivity(exclusive ? AbcG::kFaceSetExclusive : AbcG::kFaceSetNonExclusive);
+        return set;
+    };
+
+    Abc::OObject materials(top, "materials");
+    AbcM::OMaterial red(materials, "red");
+    red.getSchema().setShader("*", "surface", "standard_surface");
+    Abc::OCompoundProperty redParams = red.getSchema().getShaderParameters("*", "surface");
+    Abc::OC3fProperty(redParams, "base_color").set(Imath::C3f(1, 0, 0));
+    Abc::OFloatProperty(redParams, "roughness").set(0.5f);
+    AbcM::OMaterial blue(red, "blue");
+    blue.getSchema().setShader("*", "surface", "standard_surface");
+    Abc::OCompoundProperty blueParams = blue.getSchema().getShaderParameters("*", "surface");
+    Abc::OC3fProperty(blueParams, "base_color").set(Imath::C3f(0, 0, 1));
+
+    AbcG::OXform cube = writeXform(top, "cube", {0, 0, 0});
+    AbcG::OPolyMesh cubeShape = writeCube(cube, "cubeShape");
+    faceSet(cubeShape, "sides", {0, 1, 2, 3}, true);
+    faceSet(cubeShape, "bottom", {4}, true);
+    AbcG::OFaceSet& topSet = faceSet(cubeShape, "top", {5}, true);
+    AbcM::addMaterialAssignment(cubeShape, "/materials/red");
+    AbcM::addMaterialAssignment(topSet, "/materials/red/blue");
+
+    AbcG::OXform overlap = writeXform(top, "overlap", {3, 0, 0});
+    AbcG::OPolyMesh quads(overlap, "quadShape");
+    const std::vector<Imath::V3f> P = {{0, 0, 0}, {0, 0, 1}, {1, 0, 1}, {1, 0, 0}, {2, 0, 1}, {2, 0, 0}};
+    const std::vector<int32_t> indices = {0, 3, 2, 1, 3, 5, 4, 2};
+    const std::vector<int32_t> counts = {4, 4};
+    quads.getSchema().set(AbcG::OPolyMeshSchema::Sample{AbcG::P3fArraySample(P), Abc::Int32ArraySample(indices),
+                                                        Abc::Int32ArraySample(counts)});
+    faceSet(quads, "a", {0}, false);
+    faceSet(quads, "b", {0, 1}, false);
+
+    AbcG::OXform assigned = writeXform(top, "assigned", {0, 3, 0});
+    AbcM::addMaterialAssignment(assigned, "/materials/red/blue");
+    writeQuad(assigned, "childShape");
+
+    AbcG::OXform bad = writeXform(top, "bad", {0, -3, 0});
+    AbcG::OPolyMesh badShape(bad, "quadShape");
+    const std::vector<Imath::V3f> quad = {{0, 0, 0}, {0, 0, 1}, {1, 0, 1}, {1, 0, 0}};
+    const std::vector<int32_t> quadIndices = {0, 3, 2, 1};
+    const std::vector<int32_t> quadCounts = {4};
+    badShape.getSchema().set(AbcG::OPolyMeshSchema::Sample{
+        AbcG::P3fArraySample(quad), Abc::Int32ArraySample(quadIndices), Abc::Int32ArraySample(quadCounts)});
+    faceSet(badShape, "broken", {5}, true);
+}
+
 int main(int argc, char** argv)
 {
     const std::filesystem::path dir = argc > 1 ? argv[1] : "test/fixtures";
@@ -322,6 +480,8 @@ int main(int argc, char** argv)
         unsupportedTypes(dir);
         attributes(dir);
         pointsAndCurves(dir);
+        animation(dir);
+        faceSetsAndMaterials(dir);
     } catch (const std::exception& e) {
         std::cerr << "Failed to write fixtures: " << e.what() << std::endl;
         return 1;

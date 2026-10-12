@@ -1,6 +1,16 @@
 /** Kind of an Alembic object, derived from its schema. */
 export type AbcObjectType =
-    'xform' | 'mesh' | 'subd' | 'camera' | 'points' | 'curves' | 'nupatch' | 'light' | 'faceset' | 'unknown';
+    | 'xform'
+    | 'mesh'
+    | 'subd'
+    | 'camera'
+    | 'points'
+    | 'curves'
+    | 'nupatch'
+    | 'light'
+    | 'faceset'
+    | 'material'
+    | 'unknown';
 
 /**
  * 4x4 matrix as 16 numbers in column-major order (translation at indices 12-14),
@@ -25,6 +35,10 @@ export interface AbcFileInfo {
     objectCount: number;
     /** True when at least one object has varying samples. */
     hasAnimation: boolean;
+    /** Most common frame rate among animated objects with uniform sampling. */
+    fps?: number;
+    /** startTime/endTime in frames, when fps is known. */
+    frameRange?: { start: number; end: number };
     /** Start/end time of the archive in seconds (0 when the file has no time information). */
     startTime: number;
     endTime: number;
@@ -45,6 +59,10 @@ export interface AbcObject {
     numSamples: number;
     /** True when the object's samples change over time. */
     animated: boolean;
+    /** Time sampling of the object's schema; undefined for objects without samples. */
+    timeSampling?: AbcTimeSampling;
+    /** Whether the topology changes over time (meshes, subds, points, curves). */
+    topology?: 'constant' | 'homogeneous' | 'heterogeneous';
 }
 
 /**
@@ -73,8 +91,40 @@ export interface AbcMesh {
      * normals, UVs or requested attributes are stored per face corner or per face.
      */
     layout: 'points' | 'corners';
+    /** Time of the sample that was read (the first one when interpolating). */
+    sampleTime: number;
+    /** True when positions were interpolated between two samples. */
+    interpolated: boolean;
+    /**
+     * Triangle ranges per face set (spec 0003), in triangles, ready for three.js geometry groups.
+     * Present when the mesh has face sets and each set is one contiguous run of faces, or always
+     * with `groupByFaceSet`. Faces in no face set form a final group whose slot is named 'default'.
+     */
+    groups?: { start: number; count: number; faceSet?: string; materialIndex: number }[];
+    /** Material slots referenced by `groups[i].materialIndex`. */
+    materialSlots?: { name: string; faceSet?: string; materialPath?: string }[];
+    /** True when face sets share faces; each face then belongs to the first set listing it. */
+    faceSetsOverlap?: boolean;
+    /** Source polygon of every triangle (with `triangleToFace: true`). */
+    triangleToFace?: Uint32Array;
     /** Requested `.arbGeomParams`, laid out like `positions` (see MeshOptions.attributes). */
     attributes?: Record<string, AbcMeshAttribute>;
+}
+
+/**
+ * Positions (and normals) of a mesh at a time, in the vertex layout of the last getMesh() with the
+ * same options. Used to update a geometry in place without re-reading the topology (spec 0004).
+ */
+export interface AbcMeshFrame {
+    name: string;
+    path: string;
+    layout: 'points' | 'corners';
+    positions: Float32Array;
+    normals?: Float32Array;
+    attributes?: Record<string, AbcMeshAttribute>;
+    transform: Matrix4Array;
+    sampleTime: number;
+    interpolated: boolean;
 }
 
 /** A geometry attribute laid out like the mesh positions. */
@@ -101,6 +151,36 @@ export interface MeshOptions extends SampleOptions {
     attributes?: string[] | '*';
     /** Force one vertex per face corner, e.g. to keep the same layout across calls. */
     layout?: 'points' | 'corners';
+    /** Reorder triangles so each face set is one contiguous range (spec 0003). Default false. */
+    groupByFaceSet?: boolean;
+    /** Return `triangleToFace`, the source polygon of every triangle. Default false. */
+    triangleToFace?: boolean;
+}
+
+/** A named group of polygons of a mesh, usually one per material (spec 0003). */
+export interface AbcFaceSet {
+    name: string;
+    /** e.g. "/Box/BoxShape/Red". */
+    path: string;
+    /** Polygon indices into the mesh's faces (before triangulation). */
+    faces: Int32Array;
+    /** Whether the file marks the set as not sharing faces with other sets. */
+    exclusive: boolean;
+    /** Resolved AbcMaterial assignment: the face set's own, else the mesh's (inherited). */
+    materialPath?: string;
+}
+
+/** An AbcMaterial definition, flattened with the materials it inherits from (spec 0003). */
+export interface AbcMaterial {
+    name: string;
+    path: string;
+    /** Renderer targets, e.g. ["arnold", "*"]. */
+    targets: string[];
+    shaders: { target: string; shaderType: string; shaderName: string }[];
+    /** Parameters keyed by "target.shaderType", e.g. parameters['*.surface'].base_color. */
+    parameters: Record<string, Record<string, AbcPrimitive | AbcPrimitive[]>>;
+    /** Shading network nodes, when the material defines one. Connections map input -> "node.output". */
+    network?: { name: string; target: string; nodeType: string; connections: Record<string, string> }[];
 }
 
 /** Stored Alembic data type ("plain old data"). */
@@ -278,4 +358,31 @@ export interface AbcCamera {
 export interface SampleOptions {
     /** Time in seconds. Defaults to 0 (the first sample). */
     time?: number;
+    /** Frame number, converted to `frame / fps` with the archive frame rate. Use instead of `time`. */
+    frame?: number;
+    /**
+     * Which sample(s) to read (spec 0004):
+     * - 'near' (default): the closest sample;
+     * - 'floor': the last sample at or before `time`;
+     * - 'interpolate': blend the samples around `time` (transforms are decomposed and slerped;
+     *   positions are interpolated when the topology matches, otherwise 'floor' is used).
+     */
+    mode?: 'near' | 'floor' | 'interpolate';
+    /** Move positions from the chosen sample to `time` with velocities (points, curves, changing meshes). */
+    useVelocities?: boolean;
+    /** Multiplier for velocities. Alembic velocities are units per second; use 1 / fps for per-frame velocities. */
+    velocityScale?: number;
+}
+
+/** How an object's samples are spread over time (spec 0004). */
+export interface AbcTimeSampling {
+    kind: 'uniform' | 'cyclic' | 'acyclic';
+    /** Time of the first sample, in seconds. */
+    startTime: number;
+    /** Seconds per sample (uniform) or per cycle (cyclic). */
+    timePerCycle?: number;
+    /** Samples per second, for uniform sampling. */
+    fps?: number;
+    /** Time of every sample, in seconds. */
+    sampleTimes: Float64Array;
 }

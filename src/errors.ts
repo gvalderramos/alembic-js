@@ -9,6 +9,7 @@ export type AbcErrorCode =
     | 'ERR_ABC_MALFORMED_DATA'
     | 'ERR_ABC_READ_FAILED'
     | 'ERR_ABC_PROPERTY_NOT_FOUND'
+    | 'ERR_ABC_TOPOLOGY_CHANGED'
     | 'ERR_ABC_NATIVE_MODULE';
 
 /** Structured error thrown by every alembic-js API. Check `code` to branch on the failure kind. */
