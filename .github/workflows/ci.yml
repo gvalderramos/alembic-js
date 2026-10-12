@@ -219,6 +219,7 @@ jobs:
           docker run --rm -v "$PWD:/w" -w /w -e NODE_VERSION "${{ matrix.image }}" sh -c '
             set -e
             if ! command -v node >/dev/null; then
+              command -v xz >/dev/null || dnf install -y -q xz
               curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-${{ matrix.node-arch }}.tar.xz" | tar -xJ -C /opt
               export PATH="/opt/node-v$NODE_VERSION-linux-${{ matrix.node-arch }}/bin:$PATH"
             fi
