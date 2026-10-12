@@ -99,8 +99,10 @@ describe('input validation', () => {
             error = e;
         }
         assert.ok(error instanceof AlembicError, 'expected an AlembicError for a truncated archive');
-        assert.ok(['ERR_ABC_INVALID_ARCHIVE', 'ERR_ABC_READ_FAILED', 'ERR_ABC_MALFORMED_DATA'].includes(error.code),
-            `unexpected code ${error.code}`);
+        assert.ok(
+            ['ERR_ABC_INVALID_ARCHIVE', 'ERR_ABC_READ_FAILED', 'ERR_ABC_MALFORMED_DATA'].includes(error.code),
+            `unexpected code ${error.code}`,
+        );
     });
 
     it('requires load() before reading', () => {

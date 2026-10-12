@@ -45,8 +45,7 @@ std::string classify(const AbcG::IObject& obj)
     return "unknown";
 }
 
-template <class T>
-void sampleInfo(const AbcG::IObject& obj, ObjectRecord& rec)
+template <class T> void sampleInfo(const AbcG::IObject& obj, ObjectRecord& rec)
 {
     T typed(obj, Alembic::Abc::kWrapExisting);
     auto& schema = typed.getSchema();
@@ -56,13 +55,20 @@ void sampleInfo(const AbcG::IObject& obj, ObjectRecord& rec)
 
 void fillSampleInfo(const AbcG::IObject& obj, ObjectRecord& rec)
 {
-    if (rec.type == "xform") sampleInfo<AbcG::IXform>(obj, rec);
-    else if (rec.type == "mesh") sampleInfo<AbcG::IPolyMesh>(obj, rec);
-    else if (rec.type == "subd") sampleInfo<AbcG::ISubD>(obj, rec);
-    else if (rec.type == "camera") sampleInfo<AbcG::ICamera>(obj, rec);
-    else if (rec.type == "points") sampleInfo<AbcG::IPoints>(obj, rec);
-    else if (rec.type == "curves") sampleInfo<AbcG::ICurves>(obj, rec);
-    else if (rec.type == "nupatch") sampleInfo<AbcG::INuPatch>(obj, rec);
+    if (rec.type == "xform")
+        sampleInfo<AbcG::IXform>(obj, rec);
+    else if (rec.type == "mesh")
+        sampleInfo<AbcG::IPolyMesh>(obj, rec);
+    else if (rec.type == "subd")
+        sampleInfo<AbcG::ISubD>(obj, rec);
+    else if (rec.type == "camera")
+        sampleInfo<AbcG::ICamera>(obj, rec);
+    else if (rec.type == "points")
+        sampleInfo<AbcG::IPoints>(obj, rec);
+    else if (rec.type == "curves")
+        sampleInfo<AbcG::ICurves>(obj, rec);
+    else if (rec.type == "nupatch")
+        sampleInfo<AbcG::INuPatch>(obj, rec);
 }
 
 void visit(const AbcG::IObject& obj, const std::string& parent, ArchiveData& data)
@@ -190,9 +196,8 @@ MeshData readMeshSchema(SchemaT& schema, const ObjectRecord& rec, const Alembic:
 
     for (size_t c = 0; c < numCorners; ++c) {
         if (fi[c] < 0 || static_cast<size_t>(fi[c]) >= numPoints) {
-            throw AbcError(codes::MalformedData,
-                "Mesh '" + rec.path + "' references point " + std::to_string(fi[c]) +
-                " but only has " + std::to_string(numPoints) + " points");
+            throw AbcError(codes::MalformedData, "Mesh '" + rec.path + "' references point " + std::to_string(fi[c]) +
+                                                     " but only has " + std::to_string(numPoints) + " points");
         }
     }
 
@@ -241,8 +246,7 @@ MeshData readMeshSchema(SchemaT& schema, const ObjectRecord& rec, const Alembic:
     return mesh;
 }
 
-template <class Fn>
-auto guarded(const std::string& what, Fn&& fn) -> decltype(fn())
+template <class Fn> auto guarded(const std::string& what, Fn&& fn) -> decltype(fn())
 {
     try {
         return fn();
@@ -287,10 +291,18 @@ std::shared_ptr<ArchiveData> OpenArchive(const std::string& path)
             throw AbcError(codes::InvalidArchive, "File is not a valid Alembic archive: " + path);
         }
         switch (coreType) {
-            case AbcF::IFactory::kOgawa: data->coreType = "ogawa"; break;
-            case AbcF::IFactory::kHDF5: data->coreType = "hdf5"; break;
-            case AbcF::IFactory::kLayer: data->coreType = "layer"; break;
-            default: data->coreType = "unknown"; break;
+        case AbcF::IFactory::kOgawa:
+            data->coreType = "ogawa";
+            break;
+        case AbcF::IFactory::kHDF5:
+            data->coreType = "hdf5";
+            break;
+        case AbcF::IFactory::kLayer:
+            data->coreType = "layer";
+            break;
+        default:
+            data->coreType = "unknown";
+            break;
         }
     } catch (const AbcError&) {
         throw;
@@ -299,13 +311,16 @@ std::shared_ptr<ArchiveData> OpenArchive(const std::string& path)
     }
 
     guarded("archive metadata", [&] {
-        Alembic::Abc::GetArchiveInfo(data->archive, data->appName, data->libraryVersionString,
-                                     data->libraryVersion, data->whenWritten, data->userDescription);
+        Alembic::Abc::GetArchiveInfo(data->archive, data->appName, data->libraryVersionString, data->libraryVersion,
+                                     data->whenWritten, data->userDescription);
         data->archiveVersion = data->archive.getArchiveVersion();
 
         double start = 0.0, end = 0.0;
         Alembic::Abc::GetArchiveStartAndEndTime(data->archive, start, end);
-        if (start > end) { start = 0.0; end = 0.0; } // no samples written
+        if (start > end) {
+            start = 0.0;
+            end = 0.0;
+        } // no samples written
         data->startTime = start;
         data->endTime = end;
 
@@ -322,8 +337,8 @@ MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, double
 {
     const ObjectRecord& rec = requireRecord(data, objectPath);
     if (rec.type != "mesh" && rec.type != "subd") {
-        throw AbcError(codes::UnsupportedType,
-            "Object '" + objectPath + "' is of type '" + rec.type + "'; only 'mesh' and 'subd' provide geometry");
+        throw AbcError(codes::UnsupportedType, "Object '" + objectPath + "' is of type '" + rec.type +
+                                                   "'; only 'mesh' and 'subd' provide geometry");
     }
     return guarded("mesh '" + objectPath + "'", [&] {
         AbcG::IObject obj = resolve(data, objectPath);
@@ -369,7 +384,8 @@ CameraData ReadCamera(const ArchiveData& data, const std::string& objectPath, do
 {
     const ObjectRecord& rec = requireRecord(data, objectPath);
     if (rec.type != "camera") {
-        throw AbcError(codes::UnsupportedType, "Object '" + objectPath + "' is of type '" + rec.type + "', not 'camera'");
+        throw AbcError(codes::UnsupportedType,
+                       "Object '" + objectPath + "' is of type '" + rec.type + "', not 'camera'");
     }
     return guarded("camera '" + objectPath + "'", [&] {
         AbcG::IObject obj = resolve(data, objectPath);

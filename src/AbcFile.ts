@@ -95,8 +95,11 @@ export class AbcFile {
         }
         const parent = this.byPath.get(parentPath);
         if (!parent) {
-            throw new AlembicError('ERR_ABC_OBJECT_NOT_FOUND', `Object '${parentPath}' does not exist in ${this.path}`,
-                { file: this.path, objectPath: parentPath });
+            throw new AlembicError(
+                'ERR_ABC_OBJECT_NOT_FOUND',
+                `Object '${parentPath}' does not exist in ${this.path}`,
+                { file: this.path, objectPath: parentPath },
+            );
         }
         return parent.children.map((child) => copyObject(this.byPath.get(child)!));
     }
@@ -151,8 +154,9 @@ export class AbcFile {
 
     private requireObjects(): AbcObject[] {
         if (!this.objects) {
-            throw new AlembicError('ERR_ABC_NOT_LOADED', `Archive '${this.path}' is not loaded; call load() first`,
-                { file: this.path });
+            throw new AlembicError('ERR_ABC_NOT_LOADED', `Archive '${this.path}' is not loaded; call load() first`, {
+                file: this.path,
+            });
         }
         return this.objects;
     }

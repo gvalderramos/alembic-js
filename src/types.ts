@@ -1,15 +1,6 @@
 /** Kind of an Alembic object, derived from its schema. */
 export type AbcObjectType =
-    | 'xform'
-    | 'mesh'
-    | 'subd'
-    | 'camera'
-    | 'points'
-    | 'curves'
-    | 'nupatch'
-    | 'light'
-    | 'faceset'
-    | 'unknown';
+    'xform' | 'mesh' | 'subd' | 'camera' | 'points' | 'curves' | 'nupatch' | 'light' | 'faceset' | 'unknown';
 
 /**
  * 4x4 matrix as 16 numbers in column-major order (translation at indices 12-14),

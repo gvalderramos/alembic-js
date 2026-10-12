@@ -4,6 +4,10 @@
   "description": "Native Node.js bindings to read Alembic (.abc) files, with an optional three.js bridge",
   "license": "MIT",
   "author": "Gabriel Valderramos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gvalderramos/alembic-js.git"
+  },
   "packageManager": "yarn@1.22.22",
   "main": "bin/index.js",
   "types": "bin/index.d.ts",
@@ -12,19 +16,25 @@
     "bin/**/*.d.ts",
     "build/alembic-js.node",
     "build/*.dll",
+    "prebuilds/**/*.node",
     "addons",
     "CMakeLists.txt"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "devDependencies": {
+    "@eslint/js": "^9",
     "@types/node": "^22.15.18",
     "@types/three": "^0.170.0",
     "cmake-js": "^7.3.1",
+    "eslint": "^9",
+    "globals": "^15",
     "node-addon-api": "^8.3.1",
+    "prettier": "^3",
     "three": "^0.170.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8"
   },
   "scripts": {
     "build": "yarn build:native && yarn build:ts",
@@ -32,7 +42,11 @@
     "build:ts": "tsc",
     "rebuild": "cmake-js rebuild && tsc",
     "fixtures": "cmake-js compile --out build-tools --target generate_fixtures --CDALEMBIC_JS_BUILD_TOOLS=ON && node scripts/generate-fixtures.js",
-    "test": "tsc -p tsconfig.test.json && node --test \"bin-test/test/**/*.test.js\""
+    "test": "tsc -p tsconfig.test.json && node scripts/run-tests.js",
+    "lint": "eslint . && prettier --check \"{src,test,scripts,sandbox/src,sandbox/public}/**/*.{ts,js,html}\"",
+    "format": "prettier --write \"{src,test,scripts,sandbox/src,sandbox/public}/**/*.{ts,js,html}\" && clang-format -i addons/*.cpp addons/*.h tools/*.cpp",
+    "lint:cpp": "clang-format --dry-run --Werror addons/*.cpp addons/*.h tools/*.cpp",
+    "prepack": "tsc"
   },
   "binary": {
     "napi_versions": [

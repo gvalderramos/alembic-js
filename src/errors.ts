@@ -18,7 +18,11 @@ export class AlembicError extends Error {
     /** Alembic object path the error relates to, when known. */
     readonly objectPath?: string;
 
-    constructor(code: AbcErrorCode, message: string, details: { file?: string; objectPath?: string; cause?: unknown } = {}) {
+    constructor(
+        code: AbcErrorCode,
+        message: string,
+        details: { file?: string; objectPath?: string; cause?: unknown } = {},
+    ) {
         super(message);
         this.name = 'AlembicError';
         this.code = code;
@@ -40,9 +44,10 @@ export function wrapNativeError(error: unknown, details: { file?: string; object
         return error;
     }
     const native = error as { code?: unknown; message?: unknown };
-    const code = typeof native?.code === 'string' && native.code.startsWith('ERR_ABC_')
-        ? (native.code as AbcErrorCode)
-        : 'ERR_ABC_READ_FAILED';
+    const code =
+        typeof native?.code === 'string' && native.code.startsWith('ERR_ABC_')
+            ? (native.code as AbcErrorCode)
+            : 'ERR_ABC_READ_FAILED';
     const message = typeof native?.message === 'string' ? native.message : String(error);
     return new AlembicError(code, message, { ...details, cause: error });
 }

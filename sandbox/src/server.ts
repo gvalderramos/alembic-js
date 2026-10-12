@@ -25,7 +25,9 @@ const sceneInfo = {
     bounds: { min: box.min.toArray(), max: box.max.toArray() },
 };
 file.close();
-console.log(`Converted to GLB in ${(performance.now() - started).toFixed(0)} ms (${(glb.length / 1024 / 1024).toFixed(2)} MB)`);
+console.log(
+    `Converted to GLB in ${(performance.now() - started).toFixed(0)} ms (${(glb.length / 1024 / 1024).toFixed(2)} MB)`,
+);
 
 const types: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',

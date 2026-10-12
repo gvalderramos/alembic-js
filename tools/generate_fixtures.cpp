@@ -33,8 +33,8 @@ void writeQuad(Abc::OObject parent, const std::string& name)
     const std::vector<int32_t> indices = {0, 3, 2, 1};
     const std::vector<int32_t> counts = {4};
     AbcG::OPolyMesh mesh(parent, name);
-    AbcG::OPolyMeshSchema::Sample sample{
-        AbcG::P3fArraySample(P), Abc::Int32ArraySample(indices), Abc::Int32ArraySample(counts)};
+    AbcG::OPolyMeshSchema::Sample sample{AbcG::P3fArraySample(P), Abc::Int32ArraySample(indices),
+                                         Abc::Int32ArraySample(counts)};
     mesh.getSchema().set(sample);
 }
 
@@ -59,16 +59,16 @@ void writeCube(Abc::OObject parent, const std::string& name)
     std::vector<Imath::V3f> normals;
     std::vector<Imath::V2f> uvs;
     for (int f = 0; f < 6; ++f) {
-        for (int c = 0; c < 4; ++c) normals.push_back(faceNormals[f]);
+        for (int c = 0; c < 4; ++c)
+            normals.push_back(faceNormals[f]);
         uvs.insert(uvs.end(), {{0, 0}, {0, 1}, {1, 1}, {1, 0}});
     }
 
     AbcG::OPolyMesh mesh(parent, name);
     AbcG::ON3fGeomParam::Sample nSample{AbcG::N3fArraySample(normals), AbcG::kFacevaryingScope};
     AbcG::OV2fGeomParam::Sample uvSample{AbcG::V2fArraySample(uvs), AbcG::kFacevaryingScope};
-    AbcG::OPolyMeshSchema::Sample sample{
-        AbcG::P3fArraySample(P), Abc::Int32ArraySample(indices), Abc::Int32ArraySample(counts),
-        uvSample, nSample};
+    AbcG::OPolyMeshSchema::Sample sample{AbcG::P3fArraySample(P), Abc::Int32ArraySample(indices),
+                                         Abc::Int32ArraySample(counts), uvSample, nSample};
     mesh.getSchema().set(sample);
 }
 

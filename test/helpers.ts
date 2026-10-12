@@ -52,8 +52,10 @@ export async function assertAbcErrorAsync(promise: Promise<unknown>, code: AbcEr
 export function assertClose(actual: ArrayLike<number>, expected: ArrayLike<number>, epsilon = 1e-6): void {
     assert.equal(actual.length, expected.length, 'length mismatch');
     for (let i = 0; i < expected.length; i++) {
-        assert.ok(Math.abs(actual[i] - expected[i]) <= epsilon,
-            `index ${i}: expected ${expected[i]}, got ${actual[i]} (${Array.from(actual).join(', ')})`);
+        assert.ok(
+            Math.abs(actual[i] - expected[i]) <= epsilon,
+            `index ${i}: expected ${expected[i]}, got ${actual[i]} (${Array.from(actual).join(', ')})`,
+        );
     }
 }
 

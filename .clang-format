@@ -1,0 +1,15 @@
+# C++ style for addons/ and tools/. Checked in CI with clang-format 22 (pip install clang-format==22.1.8).
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 120
+PointerAlignment: Left
+AccessModifierOffset: -4
+NamespaceIndentation: None
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortBlocksOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: All
+SortIncludes: Never

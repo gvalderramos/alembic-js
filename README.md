@@ -105,6 +105,28 @@ Mesh notes:
 
 > **Windows note:** if the installed Alembic SDK only provides a Debug build, CMake builds the addon against the debug CRT so it links. Such a binary needs the Visual Studio debug runtime, so it only runs on developer machines. Install a Release build of Alembic before you ship binaries.
 
+### Code style
+
+```bash
+yarn lint       # ESLint + Prettier check (TypeScript, scripts, sandbox)
+yarn lint:cpp   # clang-format check of addons/ and tools/ (pip install clang-format==22.1.8)
+yarn format     # fix both
+```
+
+### CI and releases
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and pull request:
+
+- **Code style:** `yarn lint`, a TypeScript type check, and `yarn lint:cpp`.
+- **Tests:** builds the addon and runs `yarn test` on Linux (Node 20, 22, 24), Windows and macOS. The Linux Node 22 job also runs the sandbox. CI builds Alembic and Imath from source as static Release libraries (see [`scripts/ci/build-alembic.sh`](scripts/ci/build-alembic.sh)) and caches them, so the addon has no runtime library dependencies.
+- **Release:** every push to `main` that passes the jobs above runs [semantic-release](https://semantic-release.gitbook.io/). It works out the next version from [Conventional Commits](https://www.conventionalcommits.org/) (`feat:` is a minor bump, `fix:`/`chore:`/`docs:`/… is a patch, `BREAKING CHANGE` is a major). It then tags `vX.Y.Z`, publishes the package to [npm](https://www.npmjs.com/package/alembic-js) with provenance, and creates a GitHub release with the same package attached. The package includes prebuilt addons for `linux-x64`, `win32-x64` and `darwin-arm64`. Publishing needs an `NPM_TOKEN` repository secret (an npm granular access token with read and write access). Commit messages that don't follow the convention, such as a default merge commit, don't trigger a release, so squash-merge PRs with a conventional title.
+
+Install a release with:
+
+```bash
+npm install alembic-js
+```
+
 ### Test fixtures
 
 `test/fixtures/*.abc` are written by [`tools/generate_fixtures.cpp`](tools/generate_fixtures.cpp). Regenerate them with:

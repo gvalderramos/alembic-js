@@ -8,7 +8,9 @@ const IDENTITY = translation(0, 0, 0);
 
 describe('simple mesh', () => {
     let file: AbcFile;
-    before(() => { file = AbcFile.open(fixture('simple_mesh')); });
+    before(() => {
+        file = AbcFile.open(fixture('simple_mesh'));
+    });
     after(() => file.close());
 
     it('extracts positions and triangulated indices', () => {
@@ -35,13 +37,18 @@ describe('simple mesh', () => {
     });
 
     it('returns every mesh with getMeshes()', () => {
-        assert.deepEqual(file.getMeshes().map((mesh) => mesh.path), ['/plane']);
+        assert.deepEqual(
+            file.getMeshes().map((mesh) => mesh.path),
+            ['/plane'],
+        );
     });
 });
 
 describe('transformed mesh', () => {
     let file: AbcFile;
-    before(() => { file = AbcFile.open(fixture('transformed_mesh')); });
+    before(() => {
+        file = AbcFile.open(fixture('transformed_mesh'));
+    });
     after(() => file.close());
 
     it('splits vertices for face-varying normals and UVs', () => {
@@ -86,7 +93,9 @@ describe('transformed mesh', () => {
 
 describe('nested and animated transforms', () => {
     let file: AbcFile;
-    before(() => { file = AbcFile.open(fixture('nested_hierarchy')); });
+    before(() => {
+        file = AbcFile.open(fixture('nested_hierarchy'));
+    });
     after(() => file.close());
 
     it('accumulates parent transforms', () => {
@@ -117,18 +126,27 @@ describe('nested and animated transforms', () => {
 
     it('rejects invalid times', () => {
         assertAbcError(() => file.getTransform('/root', { time: Number.NaN }), 'ERR_ABC_INVALID_ARGUMENT');
-        assertAbcError(() => file.getTransform('/root', { time: '1' as unknown as number }), 'ERR_ABC_INVALID_ARGUMENT');
+        assertAbcError(
+            () => file.getTransform('/root', { time: '1' as unknown as number }),
+            'ERR_ABC_INVALID_ARGUMENT',
+        );
     });
 });
 
 describe('unsupported objects and lookup errors', () => {
     let file: AbcFile;
-    before(() => { file = AbcFile.open(fixture('unsupported_types')); });
+    before(() => {
+        file = AbcFile.open(fixture('unsupported_types'));
+    });
     after(() => file.close());
 
     for (const objectPath of ['/particles', '/curve', '/camera', '/group']) {
         it(`refuses to extract geometry from ${objectPath}`, () => {
-            const error = assertAbcError(() => file.getMesh(objectPath), 'ERR_ABC_UNSUPPORTED_TYPE', /only 'mesh' and 'subd'/);
+            const error = assertAbcError(
+                () => file.getMesh(objectPath),
+                'ERR_ABC_UNSUPPORTED_TYPE',
+                /only 'mesh' and 'subd'/,
+            );
             assert.equal(error.objectPath, objectPath);
         });
     }
@@ -156,7 +174,7 @@ describe('unsupported objects and lookup errors', () => {
         assert.equal(camera.near, 0.5);
         assert.equal(camera.far, 500);
         assert.ok(Math.abs(camera.aspect - 1.5) < 1e-9);
-        const expectedFov = 2 * Math.atan(24 / (2 * 50)) * 180 / Math.PI;
+        const expectedFov = (2 * Math.atan(24 / (2 * 50)) * 180) / Math.PI;
         assert.ok(Math.abs(camera.fov - expectedFov) < 1e-9, `fov ${camera.fov}`);
         assertClose(camera.transform, IDENTITY);
         assertAbcError(() => file.getCamera('/particles'), 'ERR_ABC_UNSUPPORTED_TYPE');

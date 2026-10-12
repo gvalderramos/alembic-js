@@ -32,8 +32,7 @@ constexpr const char* ReadFailed = "ERR_ABC_READ_FAILED";
 
 class AbcError : public std::runtime_error {
 public:
-    AbcError(std::string code, const std::string& message)
-        : std::runtime_error(message), m_code(std::move(code)) {}
+    AbcError(std::string code, const std::string& message) : std::runtime_error(message), m_code(std::move(code)) {}
     const std::string& code() const { return m_code; }
 
 private:
@@ -45,10 +44,10 @@ using Matrix = std::array<double, 16>;
 struct ObjectRecord {
     std::string name;
     std::string path;
-    std::string parent;   // empty for top-level objects
+    std::string parent; // empty for top-level objects
     std::vector<std::string> children;
-    std::string type;     // xform | mesh | subd | camera | points | curves | nupatch | light | faceset | unknown
-    std::string schema;   // raw Alembic schema name, e.g. "AbcGeom_PolyMesh_v1"
+    std::string type;   // xform | mesh | subd | camera | points | curves | nupatch | light | faceset | unknown
+    std::string schema; // raw Alembic schema name, e.g. "AbcGeom_PolyMesh_v1"
     size_t numSamples = 0;
     bool animated = false;
 };
@@ -100,7 +99,7 @@ struct CameraData {
     double verticalAperture = 0.0;   // cm
     double nearClip = 0.0;
     double farClip = 0.0;
-    double fov = 0.0;                // vertical field of view, degrees
+    double fov = 0.0; // vertical field of view, degrees
     double aspect = 1.0;
     Matrix transform{};
 };

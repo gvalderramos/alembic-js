@@ -1,60 +1,107 @@
 <!doctype html>
 <html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>alembic-js sandbox</title>
-    <style>
-        html, body { margin: 0; height: 100%; background: #1d1f24; color: #e6e6e6; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
-        canvas { display: block; }
-        #panel { position: absolute; top: 12px; left: 12px; max-width: 340px; max-height: calc(100% - 24px); overflow: auto;
-                 background: rgba(20, 22, 26, 0.85); border: 1px solid #333; border-radius: 6px; padding: 10px 14px; }
-        #panel h1 { font-size: 14px; margin: 0 0 6px; }
-        #panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0 0 8px; }
-        #panel dt { color: #9aa0a6; }
-        #panel dd { margin: 0; word-break: break-all; }
-        #panel ul { margin: 0; padding-left: 16px; }
-        #status { position: absolute; bottom: 12px; left: 12px; color: #9aa0a6; }
-    </style>
-    <script type="importmap">
-        { "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
-    </script>
-</head>
-<body>
-    <div id="panel"><h1>alembic-js sandbox</h1><div id="info">Loading…</div></div>
-    <div id="status"></div>
-    <script type="module">
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>alembic-js sandbox</title>
+        <style>
+            html,
+            body {
+                margin: 0;
+                height: 100%;
+                background: #1d1f24;
+                color: #e6e6e6;
+                font:
+                    13px/1.4 system-ui,
+                    sans-serif;
+                overflow: hidden;
+            }
+            canvas {
+                display: block;
+            }
+            #panel {
+                position: absolute;
+                top: 12px;
+                left: 12px;
+                max-width: 340px;
+                max-height: calc(100% - 24px);
+                overflow: auto;
+                background: rgba(20, 22, 26, 0.85);
+                border: 1px solid #333;
+                border-radius: 6px;
+                padding: 10px 14px;
+            }
+            #panel h1 {
+                font-size: 14px;
+                margin: 0 0 6px;
+            }
+            #panel dl {
+                display: grid;
+                grid-template-columns: auto 1fr;
+                gap: 2px 10px;
+                margin: 0 0 8px;
+            }
+            #panel dt {
+                color: #9aa0a6;
+            }
+            #panel dd {
+                margin: 0;
+                word-break: break-all;
+            }
+            #panel ul {
+                margin: 0;
+                padding-left: 16px;
+            }
+            #status {
+                position: absolute;
+                bottom: 12px;
+                left: 12px;
+                color: #9aa0a6;
+            }
+        </style>
+        <script type="importmap">
+            { "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
+        </script>
+    </head>
+    <body>
+        <div id="panel">
+            <h1>alembic-js sandbox</h1>
+            <div id="info">Loading…</div>
+        </div>
+        <div id="status"></div>
+        <script type="module">
+            import * as THREE from 'three';
+            import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+            import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
 
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1d1f24);
-        scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 1.2));
-        const sun = new THREE.DirectionalLight(0xffffff, 2.5);
-        sun.position.set(5, 10, 7);
-        scene.add(sun);
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1d1f24);
+            scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 1.2));
+            const sun = new THREE.DirectionalLight(0xffffff, 2.5);
+            sun.position.set(5, 10, 7);
+            scene.add(sun);
 
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
+            const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
 
-        const escape = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+            const escape = (s) =>
+                String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
-        const [meta, gltf] = await Promise.all([
-            fetch('/scene.json').then((r) => r.json()),
-            new GLTFLoader().loadAsync('/scene.glb'),
-        ]);
-        scene.add(gltf.scene);
+            const [meta, gltf] = await Promise.all([
+                fetch('/scene.json').then((r) => r.json()),
+                new GLTFLoader().loadAsync('/scene.glb'),
+            ]);
+            scene.add(gltf.scene);
 
-        const { info, objects } = meta;
-        const depth = (p) => p.split('/').length - 2;
-        document.getElementById('info').innerHTML = `
+            const { info, objects } = meta;
+            const depth = (p) => p.split('/').length - 2;
+            document.getElementById('info').innerHTML = `
             <dl>
                 <dt>File</dt><dd>${escape(info.path.split(/[\\/]/).pop())}</dd>
                 <dt>Written by</dt><dd>${escape(info.appName)}</dd>
@@ -64,31 +111,34 @@
             </dl>
             <ul>${objects.map((o) => `<li style="margin-left:${depth(o.path) * 12}px">${escape(o.name)} <span style="color:#9aa0a6">${o.type}</span></li>`).join('')}</ul>`;
 
-        // Frame the model.
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const radius = size.length() / 2;
-        camera.position.copy(center).add(new THREE.Vector3(1, 0.6, 1.4).normalize().multiplyScalar(radius * 2.4));
-        camera.near = radius / 100;
-        camera.far = radius * 100;
-        camera.updateProjectionMatrix();
-        controls.target.copy(center);
-
-        let triangles = 0;
-        gltf.scene.traverse((n) => { if (n.isMesh) triangles += n.geometry.index.count / 3; });
-        document.getElementById('status').textContent = `${triangles.toLocaleString()} triangles · drag to orbit, scroll to zoom`;
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
+            // Frame the model.
+            const box = new THREE.Box3().setFromObject(gltf.scene);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            const radius = size.length() / 2;
+            camera.position.copy(center).add(new THREE.Vector3(1, 0.6, 1.4).normalize().multiplyScalar(radius * 2.4));
+            camera.near = radius / 100;
+            camera.far = radius * 100;
             camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-        renderer.setAnimationLoop(() => {
-            controls.update();
-            renderer.render(scene, camera);
-        });
-        window.__sandboxReady = true;
-    </script>
-</body>
+            controls.target.copy(center);
+
+            let triangles = 0;
+            gltf.scene.traverse((n) => {
+                if (n.isMesh) triangles += n.geometry.index.count / 3;
+            });
+            document.getElementById('status').textContent =
+                `${triangles.toLocaleString()} triangles · drag to orbit, scroll to zoom`;
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+            renderer.setAnimationLoop(() => {
+                controls.update();
+                renderer.render(scene, camera);
+            });
+            window.__sandboxReady = true;
+        </script>
+    </body>
 </html>

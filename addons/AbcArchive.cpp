@@ -16,8 +16,7 @@ namespace {
 }
 
 // Runs fn and converts AbcError / std::exception into coded JS errors.
-template <class Fn>
-Napi::Value translate(Napi::Env env, Fn&& fn)
+template <class Fn> Napi::Value translate(Napi::Env env, Fn&& fn)
 {
     try {
         return fn();
@@ -56,12 +55,12 @@ double optionalTime(const Napi::CallbackInfo& info, size_t index)
 Napi::Array toArray(Napi::Env env, const abcjs::Matrix& m)
 {
     Napi::Array arr = Napi::Array::New(env, m.size());
-    for (uint32_t i = 0; i < m.size(); ++i) arr.Set(i, Napi::Number::New(env, m[i]));
+    for (uint32_t i = 0; i < m.size(); ++i)
+        arr.Set(i, Napi::Number::New(env, m[i]));
     return arr;
 }
 
-template <class TypedArrayT, class T>
-TypedArrayT toTypedArray(Napi::Env env, const std::vector<T>& values)
+template <class TypedArrayT, class T> TypedArrayT toTypedArray(Napi::Env env, const std::vector<T>& values)
 {
     // Copy into a JS-owned buffer so no native memory escapes to JavaScript.
     auto buffer = Napi::ArrayBuffer::New(env, values.size() * sizeof(T));
@@ -72,10 +71,10 @@ TypedArrayT toTypedArray(Napi::Env env, const std::vector<T>& values)
 class OpenWorker : public Napi::AsyncWorker {
 public:
     OpenWorker(Napi::Env env, Napi::Object self, std::string path)
-        : Napi::AsyncWorker(env),
-          m_deferred(Napi::Promise::Deferred::New(env)),
-          m_self(Napi::Persistent(self)),
-          m_path(std::move(path)) {}
+        : Napi::AsyncWorker(env), m_deferred(Napi::Promise::Deferred::New(env)), m_self(Napi::Persistent(self)),
+          m_path(std::move(path))
+    {
+    }
 
     Napi::Promise promise() const { return m_deferred.Promise(); }
 
@@ -115,8 +114,7 @@ private:
 
 } // namespace
 
-AbcArchive::AbcArchive(const Napi::CallbackInfo& info)
-    : Napi::ObjectWrap<AbcArchive>(info)
+AbcArchive::AbcArchive(const Napi::CallbackInfo& info) : Napi::ObjectWrap<AbcArchive>(info)
 {
     if (info.Length() != 1 || !info[0].IsString()) {
         throwCoded(info.Env(), codes::InvalidArgument, "AbcArchive expects a single file path string");
@@ -191,7 +189,8 @@ Napi::Value AbcArchive::getObjects(const Napi::CallbackInfo& info)
         obj.Set("path", rec.path);
         if (!rec.parent.empty()) obj.Set("parent", rec.parent);
         Napi::Array children = Napi::Array::New(env, rec.children.size());
-        for (uint32_t c = 0; c < rec.children.size(); ++c) children.Set(c, rec.children[c]);
+        for (uint32_t c = 0; c < rec.children.size(); ++c)
+            children.Set(c, rec.children[c]);
         obj.Set("children", children);
         obj.Set("type", rec.type);
         obj.Set("schema", rec.schema);
@@ -267,15 +266,16 @@ Napi::Value AbcArchive::getCamera(const Napi::CallbackInfo& info)
 
 Napi::Function AbcArchive::GetClass(Napi::Env env)
 {
-    return DefineClass(env, "AbcArchive", {
-        InstanceMethod("open", &AbcArchive::open),
-        InstanceMethod("openAsync", &AbcArchive::openAsync),
-        InstanceMethod("isOpen", &AbcArchive::isOpen),
-        InstanceMethod("close", &AbcArchive::close),
-        InstanceMethod("getInfo", &AbcArchive::getInfo),
-        InstanceMethod("getObjects", &AbcArchive::getObjects),
-        InstanceMethod("getMesh", &AbcArchive::getMesh),
-        InstanceMethod("getTransform", &AbcArchive::getTransform),
-        InstanceMethod("getCamera", &AbcArchive::getCamera),
-    });
+    return DefineClass(env, "AbcArchive",
+                       {
+                           InstanceMethod("open", &AbcArchive::open),
+                           InstanceMethod("openAsync", &AbcArchive::openAsync),
+                           InstanceMethod("isOpen", &AbcArchive::isOpen),
+                           InstanceMethod("close", &AbcArchive::close),
+                           InstanceMethod("getInfo", &AbcArchive::getInfo),
+                           InstanceMethod("getObjects", &AbcArchive::getObjects),
+                           InstanceMethod("getMesh", &AbcArchive::getMesh),
+                           InstanceMethod("getTransform", &AbcArchive::getTransform),
+                           InstanceMethod("getCamera", &AbcArchive::getCamera),
+                       });
 }

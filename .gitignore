@@ -60,3 +60,6 @@ bin/
 bin-test/
 build-tools/
 *.tgz
+.deps/
+dist/
+prebuilds/

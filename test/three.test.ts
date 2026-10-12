@@ -22,7 +22,10 @@ describe('three.js bridge', () => {
     it('computes normals when the file has none', () => {
         const file = AbcFile.open(fixture('simple_mesh'));
         const geometry = toBufferGeometry(file.getMesh('/plane'), THREE) as THREE.BufferGeometry;
-        const normal = new THREE.Vector3().fromBufferAttribute(geometry.getAttribute('normal') as THREE.BufferAttribute, 0);
+        const normal = new THREE.Vector3().fromBufferAttribute(
+            geometry.getAttribute('normal') as THREE.BufferAttribute,
+            0,
+        );
         assert.deepEqual(normal.toArray(), [0, 1, 0]);
         const bare = toBufferGeometry(file.getMesh('/plane'), THREE, { computeNormals: false }) as THREE.BufferGeometry;
         assert.equal(bare.getAttribute('normal'), undefined);
@@ -65,7 +68,9 @@ describe('three.js bridge', () => {
         const material = new THREE.MeshStandardMaterial();
         const root = buildThreeScene(file, THREE, { material }) as THREE.Group;
         const meshes: THREE.Mesh[] = [];
-        root.traverse((node) => { if ((node as THREE.Mesh).isMesh) meshes.push(node as THREE.Mesh); });
+        root.traverse((node) => {
+            if ((node as THREE.Mesh).isMesh) meshes.push(node as THREE.Mesh);
+        });
         assert.deepEqual(meshes.map((mesh) => mesh.name).sort(), ['Circle', 'Circle_001', 'Circle_002']);
         assert.ok(meshes.every((mesh) => mesh.material === material));
 
@@ -79,7 +84,9 @@ describe('three.js bridge', () => {
 
 describe('Ancient Kettle sample', () => {
     let file: AbcFile;
-    before(() => { file = AbcFile.open(kettlePath); });
+    before(() => {
+        file = AbcFile.open(kettlePath);
+    });
     after(() => file.close());
 
     it('reads Blender metadata', () => {
@@ -90,7 +97,10 @@ describe('Ancient Kettle sample', () => {
     });
 
     it('reads the hierarchy', () => {
-        assert.deepEqual(file.getChildren().map((obj) => obj.name), ['Camera', 'Handle', 'Lid', 'Kettle']);
+        assert.deepEqual(
+            file.getChildren().map((obj) => obj.name),
+            ['Camera', 'Handle', 'Lid', 'Kettle'],
+        );
         assert.deepEqual(file.getObject('/Kettle')!.children, ['/Kettle/Circle']);
         assert.equal(file.getObject('/Camera/Camera')!.type, 'camera');
     });

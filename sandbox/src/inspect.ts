@@ -14,7 +14,9 @@ try {
     console.log(`File:        ${info.path}`);
     console.log(`Written by:  ${info.appName} (${info.libraryVersionString})`);
     console.log(`Written on:  ${info.whenWritten}`);
-    console.log(`Objects:     ${info.objectCount}, animated: ${info.hasAnimation}, time ${info.startTime}s - ${info.endTime}s`);
+    console.log(
+        `Objects:     ${info.objectCount}, animated: ${info.hasAnimation}, time ${info.startTime}s - ${info.endTime}s`,
+    );
 
     console.log('\nHierarchy:');
     file.traverse((obj, depth) => {
@@ -27,7 +29,9 @@ try {
         const vertices = mesh.positions.length / 3;
         const triangles = mesh.indices.length / 3;
         const attrs = [mesh.normals && 'normals', mesh.uvs && 'uvs'].filter(Boolean).join(', ') || 'positions only';
-        console.log(`  ${mesh.path}: ${mesh.faceCount} faces -> ${triangles} triangles, ${vertices} vertices (${attrs})`);
+        console.log(
+            `  ${mesh.path}: ${mesh.faceCount} faces -> ${triangles} triangles, ${vertices} vertices (${attrs})`,
+        );
     }
 
     let meshCount = 0;
@@ -39,7 +43,11 @@ try {
             triangleCount += (mesh.geometry.index?.count ?? 0) / 3;
         }
     });
-    const fmt = (v: THREE.Vector3) => v.toArray().map((n) => n.toFixed(3)).join(', ');
+    const fmt = (v: THREE.Vector3) =>
+        v
+            .toArray()
+            .map((n) => n.toFixed(3))
+            .join(', ');
     console.log('\nthree.js scene:');
     console.log(`  ${meshCount} THREE.Mesh, ${triangleCount} triangles`);
     console.log(`  bounding box min (${fmt(box.min)}) max (${fmt(box.max)})`);

@@ -6,17 +6,22 @@ import { assertAbcError, fixture } from './helpers';
 
 describe('hierarchy', () => {
     let file: AbcFile;
-    before(() => { file = AbcFile.open(fixture('nested_hierarchy')); });
+    before(() => {
+        file = AbcFile.open(fixture('nested_hierarchy'));
+    });
     after(() => file.close());
 
     it('lists every object depth-first', () => {
-        assert.deepEqual(file.getObjects().map((obj) => obj.path), [
-            '/root',
-            '/root/child_a',
-            '/root/child_a/grandchild',
-            '/root/child_a/grandchild/quadShape',
-            '/root/child_b',
-        ]);
+        assert.deepEqual(
+            file.getObjects().map((obj) => obj.path),
+            [
+                '/root',
+                '/root/child_a',
+                '/root/child_a/grandchild',
+                '/root/child_a/grandchild/quadShape',
+                '/root/child_b',
+            ],
+        );
     });
 
     it('records names, types and parent/child relationships', () => {
@@ -42,9 +47,18 @@ describe('hierarchy', () => {
     });
 
     it('returns top-level objects and children', () => {
-        assert.deepEqual(file.getChildren().map((obj) => obj.path), ['/root']);
-        assert.deepEqual(file.getChildren('/').map((obj) => obj.path), ['/root']);
-        assert.deepEqual(file.getChildren('/root').map((obj) => obj.name), ['child_a', 'child_b']);
+        assert.deepEqual(
+            file.getChildren().map((obj) => obj.path),
+            ['/root'],
+        );
+        assert.deepEqual(
+            file.getChildren('/').map((obj) => obj.path),
+            ['/root'],
+        );
+        assert.deepEqual(
+            file.getChildren('/root').map((obj) => obj.name),
+            ['child_a', 'child_b'],
+        );
         assert.deepEqual(file.getChildren('/root/child_b'), []);
     });
 
@@ -56,7 +70,9 @@ describe('hierarchy', () => {
 
     it('traverses with depth and supports pruning', () => {
         const visited: string[] = [];
-        file.traverse((obj, depth) => { visited.push(`${depth}:${obj.name}`); });
+        file.traverse((obj, depth) => {
+            visited.push(`${depth}:${obj.name}`);
+        });
         assert.deepEqual(visited, ['0:root', '1:child_a', '2:grandchild', '3:quadShape', '1:child_b']);
 
         const pruned: string[] = [];

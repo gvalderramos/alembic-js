@@ -1,0 +1,36 @@
+name: Set up Alembic SDK
+description: Builds (or restores from cache) static Release builds of Imath and Alembic.
+
+inputs:
+  alembic-version:
+    description: Alembic git tag, e.g. 1.8.12
+    required: true
+  imath-version:
+    description: Imath version without the leading "v", e.g. 3.2.3
+    required: true
+
+outputs:
+  prefix:
+    description: Install prefix to pass as CMAKE_PREFIX_PATH
+    value: ${{ steps.paths.outputs.prefix }}
+
+runs:
+  using: composite
+  steps:
+    - id: paths
+      shell: bash
+      # Forward slashes on Windows too: CMake treats backslashes as escapes.
+      run: |
+        workspace='${{ github.workspace }}'
+        if command -v cygpath >/dev/null 2>&1; then workspace="$(cygpath -m "$workspace")"; fi
+        echo "prefix=$workspace/.deps/alembic-sdk" >> "$GITHUB_OUTPUT"
+
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.paths.outputs.prefix }}
+        key: alembic-sdk-${{ runner.os }}-${{ runner.arch }}-alembic${{ inputs.alembic-version }}-imath${{ inputs.imath-version }}-v2
+
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: bash scripts/ci/build-alembic.sh "${{ steps.paths.outputs.prefix }}" "${{ inputs.imath-version }}" "${{ inputs.alembic-version }}"
