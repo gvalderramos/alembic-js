@@ -7,6 +7,7 @@
 
 #include <Alembic/AbcCoreOgawa/All.h>
 #include <Alembic/AbcGeom/All.h>
+#include <Alembic/AbcMaterial/All.h>
 
 #include <filesystem>
 #include <iostream>
@@ -402,6 +403,72 @@ void animation(const std::filesystem::path& dir)
     }
 }
 
+// Face sets and materials (spec 0003).
+// /cube/cubeShape     face-varying cube; face sets sides {0,1,2,3}, bottom {4}, top {5} (exclusive)
+//                     assigned /materials/red; face set "top" assigned /materials/red/blue
+// /overlap/quadShape  2x1 quads; non-exclusive face sets a {0} and b {0, 1}
+// /assigned           xform assigned /materials/red/blue; /assigned/childShape inherits it
+// /materials/red      target "*", surface "standard_surface", base_color (1,0,0), roughness 0.5
+// /materials/red/blue child material: inherits red (AbcMaterial inheritance is by nesting),
+//                     overrides base_color (0,0,1)
+// /bad/quadShape      face set referencing face 5 of a 1-face mesh
+void faceSetsAndMaterials(const std::filesystem::path& dir)
+{
+    namespace AbcM = Alembic::AbcMaterial;
+    Abc::OArchive archive = createArchive(dir / "face_sets.abc");
+    Abc::OObject top = archive.getTop();
+
+    auto faceSet = [](AbcG::OPolyMesh& mesh, const std::string& name, const std::vector<int32_t>& faces,
+                      bool exclusive) -> AbcG::OFaceSet& {
+        AbcG::OFaceSet& set = mesh.getSchema().createFaceSet(name);
+        set.getSchema().set(AbcG::OFaceSetSchema::Sample(Abc::Int32ArraySample(faces)));
+        set.getSchema().setFaceExclusivity(exclusive ? AbcG::kFaceSetExclusive : AbcG::kFaceSetNonExclusive);
+        return set;
+    };
+
+    Abc::OObject materials(top, "materials");
+    AbcM::OMaterial red(materials, "red");
+    red.getSchema().setShader("*", "surface", "standard_surface");
+    Abc::OCompoundProperty redParams = red.getSchema().getShaderParameters("*", "surface");
+    Abc::OC3fProperty(redParams, "base_color").set(Imath::C3f(1, 0, 0));
+    Abc::OFloatProperty(redParams, "roughness").set(0.5f);
+    AbcM::OMaterial blue(red, "blue");
+    blue.getSchema().setShader("*", "surface", "standard_surface");
+    Abc::OCompoundProperty blueParams = blue.getSchema().getShaderParameters("*", "surface");
+    Abc::OC3fProperty(blueParams, "base_color").set(Imath::C3f(0, 0, 1));
+
+    AbcG::OXform cube = writeXform(top, "cube", {0, 0, 0});
+    AbcG::OPolyMesh cubeShape = writeCube(cube, "cubeShape");
+    faceSet(cubeShape, "sides", {0, 1, 2, 3}, true);
+    faceSet(cubeShape, "bottom", {4}, true);
+    AbcG::OFaceSet& topSet = faceSet(cubeShape, "top", {5}, true);
+    AbcM::addMaterialAssignment(cubeShape, "/materials/red");
+    AbcM::addMaterialAssignment(topSet, "/materials/red/blue");
+
+    AbcG::OXform overlap = writeXform(top, "overlap", {3, 0, 0});
+    AbcG::OPolyMesh quads(overlap, "quadShape");
+    const std::vector<Imath::V3f> P = {{0, 0, 0}, {0, 0, 1}, {1, 0, 1}, {1, 0, 0}, {2, 0, 1}, {2, 0, 0}};
+    const std::vector<int32_t> indices = {0, 3, 2, 1, 3, 5, 4, 2};
+    const std::vector<int32_t> counts = {4, 4};
+    quads.getSchema().set(AbcG::OPolyMeshSchema::Sample{AbcG::P3fArraySample(P), Abc::Int32ArraySample(indices),
+                                                        Abc::Int32ArraySample(counts)});
+    faceSet(quads, "a", {0}, false);
+    faceSet(quads, "b", {0, 1}, false);
+
+    AbcG::OXform assigned = writeXform(top, "assigned", {0, 3, 0});
+    AbcM::addMaterialAssignment(assigned, "/materials/red/blue");
+    writeQuad(assigned, "childShape");
+
+    AbcG::OXform bad = writeXform(top, "bad", {0, -3, 0});
+    AbcG::OPolyMesh badShape(bad, "quadShape");
+    const std::vector<Imath::V3f> quad = {{0, 0, 0}, {0, 0, 1}, {1, 0, 1}, {1, 0, 0}};
+    const std::vector<int32_t> quadIndices = {0, 3, 2, 1};
+    const std::vector<int32_t> quadCounts = {4};
+    badShape.getSchema().set(AbcG::OPolyMeshSchema::Sample{
+        AbcG::P3fArraySample(quad), Abc::Int32ArraySample(quadIndices), Abc::Int32ArraySample(quadCounts)});
+    faceSet(badShape, "broken", {5}, true);
+}
+
 int main(int argc, char** argv)
 {
     const std::filesystem::path dir = argc > 1 ? argv[1] : "test/fixtures";
@@ -414,6 +481,7 @@ int main(int argc, char** argv)
         attributes(dir);
         pointsAndCurves(dir);
         animation(dir);
+        faceSetsAndMaterials(dir);
     } catch (const std::exception& e) {
         std::cerr << "Failed to write fixtures: " << e.what() << std::endl;
         return 1;

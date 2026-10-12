@@ -5,7 +5,9 @@ import { AlembicError } from './errors';
 import type {
     AbcCamera,
     AbcCurves,
+    AbcFaceSet,
     AbcFileInfo,
+    AbcMaterial,
     AbcMesh,
     AbcMeshFrame,
     AbcObject,
@@ -25,6 +27,8 @@ export interface NativeSampleOptions {
 export interface NativeMeshOptions extends NativeSampleOptions {
     attributes?: string[] | '*';
     layout?: string;
+    groupByFaceSet?: boolean;
+    triangleToFace?: boolean;
 }
 
 /** Shape of the C++ `AbcArchive` class (addons/AbcArchive.cpp). */
@@ -41,6 +45,9 @@ export interface NativeArchive {
     getMeshFrameAsync(objectPath: string, time?: number, options?: NativeMeshOptions): Promise<AbcMeshFrame>;
     getPoints(objectPath: string, time?: number, options?: NativeSampleOptions): AbcPoints;
     getCurves(objectPath: string, time?: number, options?: NativeSampleOptions): AbcCurves;
+    getFaceSets(objectPath: string, time?: number, options?: NativeSampleOptions): AbcFaceSet[];
+    getMaterialAssignment(objectPath: string): string | null;
+    getMaterial(objectPath: string): AbcMaterial;
     getProperties(objectPath: string, root?: string, recursive?: boolean, time?: number): AbcPropertyInfo[];
     getProperty(objectPath: string, propertyPath: string, time?: number, expand?: boolean): AbcValue;
     getUserProperties(objectPath: string, time?: number): AbcUserProperties;

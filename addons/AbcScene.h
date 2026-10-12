@@ -146,6 +146,22 @@ struct MeshOptions {
     std::vector<std::string> attributes; // names in .arbGeomParams; missing names are ignored
     bool allAttributes = false;          // '*': every numeric attribute
     bool forceCorners = false;           // layout: 'corners'
+    bool groupByFaceSet = false;         // reorder triangles so each face set is one range (spec 0003)
+    bool triangleToFace = false;         // return the source polygon of every triangle
+};
+
+// A range of triangles drawn with one material slot (spec 0003).
+struct MeshGroup {
+    size_t start = 0; // in triangles
+    size_t count = 0;
+    std::string faceSet; // empty for faces in no face set
+    size_t materialIndex = 0;
+};
+
+struct MaterialSlot {
+    std::string name;
+    std::string faceSet;
+    std::string materialPath;
 };
 
 struct MeshData {
@@ -162,6 +178,12 @@ struct MeshData {
     std::vector<MeshAttribute> attributes;
     double sampleTime = 0.0; // time of the (first) sample used
     bool interpolated = false;
+    // Face sets (spec 0003): present when the mesh has face sets and they form contiguous ranges,
+    // or always with groupByFaceSet.
+    std::vector<MeshGroup> groups;
+    std::vector<MaterialSlot> materialSlots;
+    bool faceSetsOverlap = false;
+    std::vector<uint32_t> triangleToFace;
 };
 
 // Points / particles (spec 0002).

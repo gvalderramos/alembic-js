@@ -1,6 +1,16 @@
 /** Kind of an Alembic object, derived from its schema. */
 export type AbcObjectType =
-    'xform' | 'mesh' | 'subd' | 'camera' | 'points' | 'curves' | 'nupatch' | 'light' | 'faceset' | 'unknown';
+    | 'xform'
+    | 'mesh'
+    | 'subd'
+    | 'camera'
+    | 'points'
+    | 'curves'
+    | 'nupatch'
+    | 'light'
+    | 'faceset'
+    | 'material'
+    | 'unknown';
 
 /**
  * 4x4 matrix as 16 numbers in column-major order (translation at indices 12-14),
@@ -85,6 +95,18 @@ export interface AbcMesh {
     sampleTime: number;
     /** True when positions were interpolated between two samples. */
     interpolated: boolean;
+    /**
+     * Triangle ranges per face set (spec 0003), in triangles, ready for three.js geometry groups.
+     * Present when the mesh has face sets and each set is one contiguous run of faces, or always
+     * with `groupByFaceSet`. Faces in no face set form a final group whose slot is named 'default'.
+     */
+    groups?: { start: number; count: number; faceSet?: string; materialIndex: number }[];
+    /** Material slots referenced by `groups[i].materialIndex`. */
+    materialSlots?: { name: string; faceSet?: string; materialPath?: string }[];
+    /** True when face sets share faces; each face then belongs to the first set listing it. */
+    faceSetsOverlap?: boolean;
+    /** Source polygon of every triangle (with `triangleToFace: true`). */
+    triangleToFace?: Uint32Array;
     /** Requested `.arbGeomParams`, laid out like `positions` (see MeshOptions.attributes). */
     attributes?: Record<string, AbcMeshAttribute>;
 }
@@ -129,6 +151,36 @@ export interface MeshOptions extends SampleOptions {
     attributes?: string[] | '*';
     /** Force one vertex per face corner, e.g. to keep the same layout across calls. */
     layout?: 'points' | 'corners';
+    /** Reorder triangles so each face set is one contiguous range (spec 0003). Default false. */
+    groupByFaceSet?: boolean;
+    /** Return `triangleToFace`, the source polygon of every triangle. Default false. */
+    triangleToFace?: boolean;
+}
+
+/** A named group of polygons of a mesh, usually one per material (spec 0003). */
+export interface AbcFaceSet {
+    name: string;
+    /** e.g. "/Box/BoxShape/Red". */
+    path: string;
+    /** Polygon indices into the mesh's faces (before triangulation). */
+    faces: Int32Array;
+    /** Whether the file marks the set as not sharing faces with other sets. */
+    exclusive: boolean;
+    /** Resolved AbcMaterial assignment: the face set's own, else the mesh's (inherited). */
+    materialPath?: string;
+}
+
+/** An AbcMaterial definition, flattened with the materials it inherits from (spec 0003). */
+export interface AbcMaterial {
+    name: string;
+    path: string;
+    /** Renderer targets, e.g. ["arnold", "*"]. */
+    targets: string[];
+    shaders: { target: string; shaderType: string; shaderName: string }[];
+    /** Parameters keyed by "target.shaderType", e.g. parameters['*.surface'].base_color. */
+    parameters: Record<string, Record<string, AbcPrimitive | AbcPrimitive[]>>;
+    /** Shading network nodes, when the material defines one. Connections map input -> "node.output". */
+    network?: { name: string; target: string; nodeType: string; connections: Record<string, string> }[];
 }
 
 /** Stored Alembic data type ("plain old data"). */

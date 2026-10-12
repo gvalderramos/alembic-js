@@ -161,7 +161,7 @@ export class AbcPlayer {
         const geometry = node.geometry;
         const position = geometry.getAttribute('position');
         try {
-            const frame = this.file.getMeshFrame(object.path, { ...sample, attributes });
+            const frame = this.file.getMeshFrame(object.path, { ...sample, attributes, groupByFaceSet: true });
             if (frame.positions.length === position.array.length) {
                 position.array.set(frame.positions);
                 position.needsUpdate = true;
@@ -181,7 +181,7 @@ export class AbcPlayer {
             }
         }
         // Topology changed: rebuild the geometry.
-        const mesh = this.file.getMesh(object.path, { ...sample, attributes });
+        const mesh = this.file.getMesh(object.path, { ...sample, attributes, groupByFaceSet: true });
         this.replaceGeometry(node, toBufferGeometry(mesh, this.THREE, scene));
     }
 

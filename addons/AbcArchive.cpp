@@ -1,5 +1,6 @@
 #include "AbcArchive.h"
 #include "AbcConvert.h"
+#include "AbcMaterials.h"
 
 #include <cmath>
 #include <cstring>
@@ -86,6 +87,8 @@ abcjs::MeshOptions meshOptions(const Napi::CallbackInfo& info, size_t index)
     } else if (!attributes.IsUndefined() && !attributes.IsNull()) {
         throwCoded(info.Env(), codes::InvalidArgument, "Expected attributes to be an array of names or '*'");
     }
+    options.groupByFaceSet = obj.Get("groupByFaceSet").ToBoolean().Value();
+    options.triangleToFace = obj.Get("triangleToFace").ToBoolean().Value();
     Napi::Value layout = obj.Get("layout");
     if (layout.IsString()) {
         const std::string value = layout.As<Napi::String>().Utf8Value();
@@ -158,6 +161,33 @@ Napi::Value meshToJs(Napi::Env env, const abcjs::MeshData& mesh, bool withTopolo
     }
     out.Set("transform", toArray(env, mesh.transform));
     out.Set("sampleTime", Napi::Number::New(env, mesh.sampleTime));
+    if (withTopology && !mesh.groups.empty()) {
+        Napi::Array groups = Napi::Array::New(env, mesh.groups.size());
+        for (uint32_t i = 0; i < mesh.groups.size(); ++i) {
+            const auto& g = mesh.groups[i];
+            Napi::Object group = Napi::Object::New(env);
+            group.Set("start", Napi::Number::New(env, static_cast<double>(g.start)));
+            group.Set("count", Napi::Number::New(env, static_cast<double>(g.count)));
+            if (!g.faceSet.empty()) group.Set("faceSet", g.faceSet);
+            group.Set("materialIndex", Napi::Number::New(env, static_cast<double>(g.materialIndex)));
+            groups.Set(i, group);
+        }
+        out.Set("groups", groups);
+        Napi::Array slots = Napi::Array::New(env, mesh.materialSlots.size());
+        for (uint32_t i = 0; i < mesh.materialSlots.size(); ++i) {
+            const auto& m = mesh.materialSlots[i];
+            Napi::Object slot = Napi::Object::New(env);
+            slot.Set("name", m.name);
+            if (!m.faceSet.empty()) slot.Set("faceSet", m.faceSet);
+            if (!m.materialPath.empty()) slot.Set("materialPath", m.materialPath);
+            slots.Set(i, slot);
+        }
+        out.Set("materialSlots", slots);
+        if (mesh.faceSetsOverlap) out.Set("faceSetsOverlap", Napi::Boolean::New(env, true));
+    }
+    if (withTopology && !mesh.triangleToFace.empty()) {
+        out.Set("triangleToFace", toTypedArray<Napi::Uint32Array>(env, mesh.triangleToFace));
+    }
     out.Set("interpolated", Napi::Boolean::New(env, mesh.interpolated));
     if (!mesh.attributes.empty()) {
         Napi::Object attributes = Napi::Object::New(env);
@@ -473,6 +503,89 @@ Napi::Value AbcArchive::getCurves(const Napi::CallbackInfo& info)
     });
 }
 
+Napi::Value AbcArchive::getFaceSets(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
+    return translate(env, [&]() -> Napi::Value {
+        const auto sets = abcjs::ReadFaceSets(data, objectPath, spec);
+        Napi::Array out = Napi::Array::New(env, sets.size());
+        for (uint32_t i = 0; i < sets.size(); ++i) {
+            Napi::Object set = Napi::Object::New(env);
+            set.Set("name", sets[i].name);
+            set.Set("path", sets[i].path);
+            set.Set("faces", abcjs::ToTypedArray(env, sets[i].faces));
+            set.Set("exclusive", Napi::Boolean::New(env, sets[i].exclusive));
+            if (!sets[i].materialPath.empty()) set.Set("materialPath", sets[i].materialPath);
+            out.Set(i, set);
+        }
+        return out;
+    });
+}
+
+Napi::Value AbcArchive::getMaterialAssignment(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    return translate(env, [&]() -> Napi::Value {
+        const std::string path = abcjs::ReadMaterialAssignment(data, objectPath);
+        return path.empty() ? env.Null() : Napi::String::New(env, path);
+    });
+}
+
+Napi::Value AbcArchive::getMaterial(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    return translate(env, [&]() -> Napi::Value {
+        const abcjs::MaterialData material = abcjs::ReadMaterial(data, objectPath);
+        Napi::Object out = Napi::Object::New(env);
+        out.Set("name", material.name);
+        out.Set("path", material.path);
+        Napi::Array targets = Napi::Array::New(env, material.targets.size());
+        for (uint32_t i = 0; i < material.targets.size(); ++i)
+            targets.Set(i, material.targets[i]);
+        out.Set("targets", targets);
+        Napi::Array shaders = Napi::Array::New(env, material.shaders.size());
+        Napi::Object parameters = Napi::Object::New(env);
+        for (uint32_t i = 0; i < material.shaders.size(); ++i) {
+            const auto& shader = material.shaders[i];
+            Napi::Object s = Napi::Object::New(env);
+            s.Set("target", shader.target);
+            s.Set("shaderType", shader.shaderType);
+            s.Set("shaderName", shader.shaderName);
+            shaders.Set(i, s);
+            Napi::Object params = Napi::Object::New(env);
+            for (const auto& [name, value] : shader.parameters)
+                params.Set(name, abcjs::UserValueToJs(env, value));
+            parameters.Set(shader.target + "." + shader.shaderType, params);
+        }
+        out.Set("shaders", shaders);
+        out.Set("parameters", parameters);
+        if (!material.network.empty()) {
+            Napi::Array nodes = Napi::Array::New(env, material.network.size());
+            for (uint32_t i = 0; i < material.network.size(); ++i) {
+                const auto& node = material.network[i];
+                Napi::Object n = Napi::Object::New(env);
+                n.Set("name", node.name);
+                n.Set("target", node.target);
+                n.Set("nodeType", node.nodeType);
+                Napi::Object connections = Napi::Object::New(env);
+                for (const auto& [input, source] : node.connections)
+                    connections.Set(input, source);
+                n.Set("connections", connections);
+                nodes.Set(i, n);
+            }
+            out.Set("network", nodes);
+        }
+        return out;
+    });
+}
+
 Napi::Value AbcArchive::getProperties(const Napi::CallbackInfo& info)
 {
     auto env = info.Env();
@@ -573,6 +686,9 @@ Napi::Function AbcArchive::GetClass(Napi::Env env)
                            InstanceMethod("getCamera", &AbcArchive::getCamera),
                            InstanceMethod("getPoints", &AbcArchive::getPoints),
                            InstanceMethod("getCurves", &AbcArchive::getCurves),
+                           InstanceMethod("getFaceSets", &AbcArchive::getFaceSets),
+                           InstanceMethod("getMaterialAssignment", &AbcArchive::getMaterialAssignment),
+                           InstanceMethod("getMaterial", &AbcArchive::getMaterial),
                            InstanceMethod("getProperties", &AbcArchive::getProperties),
                            InstanceMethod("getProperty", &AbcArchive::getProperty),
                            InstanceMethod("getUserProperties", &AbcArchive::getUserProperties),

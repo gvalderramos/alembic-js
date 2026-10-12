@@ -90,6 +90,9 @@ Every failure throws an `AlembicError` with a `code` (plus `file`/`objectPath` w
 | `getCamera(path, {time})` | focal length, apertures, near/far, vertical fov, aspect, world matrix |
 | `getPoints(path, {time})` / `getAllPoints()` | `AbcPoints`: positions, ids (`BigUint64Array`), velocities, widths |
 | `getCurves(path, {time})` / `getAllCurves()` | `AbcCurves`: control vertices, vertex counts, type, basis, periodic, orders/knots/weights, widths (with scope), UVs, normals |
+| `getFaceSets(path, {time})` | face sets of a mesh/subd: faces, exclusivity, resolved material path |
+| `getMaterialAssignment(path)` | AbcMaterial assignment, inherited from ancestors (`null` if none) |
+| `getMaterial(path)` / `getMaterials()` | AbcMaterial: targets, shaders, parameters (flattened with parent materials), network nodes |
 | `getProperties(path, {root, recursive, time})` | property tree (name, kind, type, interpretation, scope, sample count, element count), without reading values |
 | `getAttributes(path)` | the object's geometry attributes (`.arbGeomParams`) |
 | `getProperty(path, propertyPath, {time, expand})` | one property as typed data, e.g. `getProperty('/geo/shape', '.arbGeomParams/Cd')` |
@@ -97,7 +100,7 @@ Every failure throws an `AlembicError` with a `code` (plus `file`/`objectPath` w
 
 `getMesh()` on a `points` or `curves` object throws `ERR_ABC_UNSUPPORTED_TYPE` and names the right method.
 
-Object `type` is one of `xform`, `mesh`, `subd`, `camera`, `points`, `curves`, `nupatch`, `light`, `faceset` or `unknown`.
+Object `type` is one of `xform`, `mesh`, `subd`, `camera`, `points`, `curves`, `nupatch`, `light`, `faceset`, `material` or `unknown`.
 
 Mesh notes:
 - Polygons are fan-triangulated, and Alembic's clockwise winding becomes counter-clockwise (three.js/WebGL).
@@ -120,6 +123,11 @@ file.getPoints(path, { time: 0.51, mode: 'floor', useVelocities: true }); // mov
 - `getMeshFrame(path, options)` returns positions (and normals and requested attributes) in the layout of the last `getMesh()` with the same options, without re-triangulating. It throws `ERR_ABC_TOPOLOGY_CHANGED` when the topology differs.
 - `getMeshAsync()` / `getMeshFrameAsync()` read on a worker thread; `close()` while they run is safe.
 - three.js: `new AbcPlayer(file, root, THREE, { mode: 'interpolate' })` plays a scene built by `buildThreeScene()` (call `player.update(delta)` each frame, or `setTime(seconds)`). It updates geometry in place and rebuilds it only when the topology changes. `createTransformClip(file, root, THREE)` bakes animated transforms into a regular `AnimationClip` for `AnimationMixer`.
+
+### Face sets and materials
+- `getMesh()` returns `groups` (triangle ranges) and `materialSlots` when a mesh's face sets are contiguous runs of faces. With `groupByFaceSet: true` the triangles are reordered so every face set is one range, which is what Blender's per-material face sets need. Faces in no set form a final `default` slot. Overlapping (non-exclusive) sets are flagged with `faceSetsOverlap`, and each face goes to the first set listing it. `triangleToFace: true` adds the source polygon of every triangle.
+- `buildThreeScene()` creates one material per slot (three.js geometry groups). Pass `createMaterial({ name, faceSet, material })` to build them from the assigned AbcMaterial (`material.parameters['*.surface'].base_color`, …); Blender doesn't write AbcMaterial, but its face sets are named after the materials.
+- `onError(error, object)` lets `buildThreeScene()` skip objects it can't read instead of throwing.
 
 ### Points and curves
 - `tessellateCurves(curves, { segmentsPerSpan })` evaluates curves into polylines without three.js: linear, cubic Bezier, B-spline and Catmull-Rom, and NURBS (`variableOrder`, de Boor with rational weights). Hermite and power bases fall back to the control polygon.
@@ -188,7 +196,7 @@ yarn fixtures
 - [x] Sampling at a given time, interpolation and velocities
 - [x] three.js bridge
 - [x] Points and curves geometry ([spec](specs/0002-points-and-curves.md))
-- [ ] Face sets / materials ([spec](specs/0003-face-sets-and-materials.md))
+- [x] Face sets / materials ([spec](specs/0003-face-sets-and-materials.md))
 - [x] Velocity-based motion and animation helpers ([spec](specs/0004-animation-and-velocity.md))
 - [ ] Prebuilt binaries and CI matrix ([spec](specs/0005-prebuilt-binaries-and-ci.md))
 - [x] Attributes and properties: vertex colors, custom attributes, user properties ([spec](specs/0006-attributes-and-properties.md))
