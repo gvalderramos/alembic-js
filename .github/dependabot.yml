@@ -1,4 +1,6 @@
 # Keeps actions and npm dependencies up to date (spec 0005).
+# Minor and patch updates are grouped into one PR per directory; each major update gets its own
+# PR, so a breaking upgrade (e.g. TypeScript 7) can't block the routine ones.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -16,9 +18,20 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+        update-types: [minor, patch]
+    ignore:
+      # Type definitions follow the oldest supported Node.js (engines: >=22).
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: npm
     directory: /sandbox
     schedule:
       interval: weekly
     commit-message:
       prefix: build
+    groups:
+      sandbox:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
