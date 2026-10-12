@@ -38,7 +38,7 @@
     "node-addon-api": "^8.3.1",
     "prettier": "^3",
     "three": "^0.170.0",
-    "typescript": "^5.8.3",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8"
   },
   "scripts": {
