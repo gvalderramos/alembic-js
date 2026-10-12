@@ -108,6 +108,39 @@ struct MeshData {
     std::vector<MeshAttribute> attributes;
 };
 
+// Points / particles (spec 0002).
+struct PointsData {
+    std::string name;
+    std::string path;
+    std::vector<float> positions;
+    std::vector<uint64_t> ids;
+    std::vector<float> velocities;
+    std::vector<float> widths;
+    std::string widthScope; // vertex | constant (empty when there are no widths)
+    bool hasIds = false;
+    Matrix transform{};
+};
+
+// Curves (spec 0002). Optional arrays are empty when the file doesn't write them.
+struct CurvesData {
+    std::string name;
+    std::string path;
+    std::vector<float> positions;
+    std::vector<int32_t> vertexCounts;
+    std::string curveType; // linear | cubic | variableOrder
+    bool periodic = false;
+    std::string basis; // none | bezier | bspline | catmullrom | hermite | power
+    std::vector<uint8_t> orders;
+    std::vector<float> knots;
+    std::vector<float> weights;
+    std::vector<float> widths;
+    std::string widthScope; // constant | uniform | varying | vertex (as written, or inferred from the count)
+    std::vector<float> uvs;
+    std::vector<float> normals;
+    std::vector<float> velocities;
+    Matrix transform{};
+};
+
 struct TransformData {
     std::string path;
     Matrix local{};
@@ -135,11 +168,16 @@ std::shared_ptr<ArchiveData> OpenArchive(const std::string& path);
 // Resolves an object path such as "/a/b" to its IObject. Throws AbcError.
 Alembic::Abc::IObject ResolveObject(const ArchiveData& data, const std::string& objectPath);
 
+// Accumulated world matrix of an object at a sample.
+Matrix WorldMatrix(Alembic::Abc::IObject obj, const Alembic::Abc::ISampleSelector& sel);
+
 // Readers. All throw AbcError. `time` is in seconds.
 MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, double time,
                   const MeshOptions& options = MeshOptions());
 TransformData ReadTransform(const ArchiveData& data, const std::string& objectPath, double time);
 CameraData ReadCamera(const ArchiveData& data, const std::string& objectPath, double time);
+PointsData ReadPoints(const ArchiveData& data, const std::string& objectPath, double time);
+CurvesData ReadCurves(const ArchiveData& data, const std::string& objectPath, double time);
 
 } // namespace abcjs
 

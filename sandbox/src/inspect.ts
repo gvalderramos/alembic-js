@@ -24,13 +24,31 @@ try {
         console.log(`${'  '.repeat(depth + 1)}${obj.name} (${obj.type})${extra}`);
     });
 
-    console.log('\nMeshes:');
+    console.log('\nGeometry:');
     for (const mesh of file.getMeshes()) {
         const vertices = mesh.positions.length / 3;
         const triangles = mesh.indices.length / 3;
         const attrs = [mesh.normals && 'normals', mesh.uvs && 'uvs'].filter(Boolean).join(', ') || 'positions only';
         console.log(
             `  ${mesh.path}: ${mesh.faceCount} faces -> ${triangles} triangles, ${vertices} vertices (${attrs})`,
+        );
+    }
+
+    for (const points of file.getAllPoints()) {
+        const extra = [
+            points.ids && 'ids',
+            points.velocities && 'velocities',
+            points.widths && `widths (${points.widthScope})`,
+        ];
+        console.log(
+            `  ${points.path}: ${points.count} points (${extra.filter(Boolean).join(', ') || 'positions only'})`,
+        );
+    }
+    for (const curves of file.getAllCurves()) {
+        const kind = curves.curveType === 'linear' ? 'linear' : `${curves.curveType} ${curves.basis}`;
+        const vertices = curves.positions.length / 3;
+        console.log(
+            `  ${curves.path}: ${curves.curveCount} ${kind} curves, ${vertices} control vertices${curves.periodic ? ', periodic' : ''}`,
         );
     }
 

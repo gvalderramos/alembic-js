@@ -33,7 +33,8 @@ export function loadScene(abcPath: string, time = 0): LoadedScene {
     root.updateMatrixWorld(true);
     const box = new THREE.Box3();
     root.traverse((node) => {
-        if ((node as THREE.Mesh).isMesh) box.expandByObject(node);
+        const drawable = node as THREE.Mesh & THREE.Points & THREE.LineSegments;
+        if (drawable.isMesh || drawable.isPoints || drawable.isLineSegments) box.expandByObject(node);
     });
     return { file, root, box };
 }
