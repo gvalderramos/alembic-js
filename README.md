@@ -147,6 +147,7 @@ yarn fixtures
 - [ ] Face sets / materials ([spec](specs/0003-face-sets-and-materials.md))
 - [ ] Velocity-based motion and animation helpers ([spec](specs/0004-animation-and-velocity.md))
 - [ ] Prebuilt binaries and CI matrix ([spec](specs/0005-prebuilt-binaries-and-ci.md))
+- [ ] Attributes and properties: vertex colors, custom attributes, user properties ([spec](specs/0006-attributes-and-properties.md))
 
 ---
 

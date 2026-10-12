@@ -84,6 +84,8 @@ function toLineSegments(curves: AbcCurves, THREE, options?: {
 - `buildThreeScene()` creates these objects for `points`/`curves` nodes, instead of the empty `Group` placeholders it creates today.
 
 ## Native Work (`addons/`)
+> Widths, velocities and custom particle or curve attributes should use the generic attribute reader from spec [0006](0006-attributes-and-properties.md) when it's available, instead of separate typed readers.
+
 1. **`AbcScene.h`:** add `PointsData` and `CurvesData` structs plus `ReadPoints()` / `ReadCurves()`, following the existing `MeshData`/`ReadMesh()` pattern (pure C++, throwing `AbcError`).
 2. **`ReadPoints()`:**
    - `IPointsSchema::get(sample, sel)`.

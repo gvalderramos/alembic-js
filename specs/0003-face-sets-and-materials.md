@@ -78,6 +78,8 @@ interface ThreeSceneOptions {
 - `mesh.userData.alembic.faceSets` stores the names.
 
 ## Native Work (`addons/`)
+> Shader parameter values should be decoded with the generic `AbcValue` reader from spec [0006](0006-attributes-and-properties.md).
+
 1. **Face sets:**
    - Use `IPolyMeshSchema::getFaceSetNames()` / `getFaceSet(name)` (and the same on `ISubDSchema`).
    - Read `IFaceSetSchema::Sample::getFaces()` and `getFaceExclusivity()`.

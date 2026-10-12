@@ -107,6 +107,8 @@ function createTransformClip(file: AbcFile, THREE, options?: { name?: string; fp
 - Optional morph-target baking for short homogeneous mesh caches (`geometry.morphAttributes.position`), for GPU playback without per-frame uploads. Opt-in, because memory grows by frames × vertices.
 
 ## Native Work (`addons/`)
+> Velocities and other per-vertex attributes are read through the attribute sources from spec [0006](0006-attributes-and-properties.md). `getMeshFrame` should accept the same `attributes` option and return them in the cached layout.
+
 1. **Time sampling metadata:**
    - For each schema, read `getTimeSampling()` and `getTimeSamplingType()` (`isUniform`, `isCyclic`, `getTimePerCycle`), and `getSampleTime(i)` for each `i < numSamples`.
    - Store the result in `ObjectRecord`.
