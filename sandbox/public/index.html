@@ -239,14 +239,15 @@
                     play.textContent = playing ? 'Pause' : 'Play';
                 });
                 let last = performance.now();
-                const tick = (now) => {
+                const tick = () => {
+                    const now = performance.now(); // wall clock: rAF timestamps lag when the page is throttled
                     const delta = (now - last) / 1000;
                     last = now;
-                    if (playing && !pending) {
+                    if (playing) {
                         const duration = info.endTime - info.startTime;
                         let t = time + delta;
                         if (t > info.endTime) t = info.startTime + ((t - info.startTime) % (duration || 1));
-                        show(t);
+                        show(t); // the clock keeps running; frames are dropped while one is loading
                     }
                     requestAnimationFrame(tick);
                 };
