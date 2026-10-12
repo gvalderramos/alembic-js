@@ -8,6 +8,7 @@ export type AbcErrorCode =
     | 'ERR_ABC_UNSUPPORTED_TYPE'
     | 'ERR_ABC_MALFORMED_DATA'
     | 'ERR_ABC_READ_FAILED'
+    | 'ERR_ABC_PROPERTY_NOT_FOUND'
     | 'ERR_ABC_NATIVE_MODULE';
 
 /** Structured error thrown by every alembic-js API. Check `code` to branch on the failure kind. */
@@ -17,17 +18,20 @@ export class AlembicError extends Error {
     readonly file?: string;
     /** Alembic object path the error relates to, when known. */
     readonly objectPath?: string;
+    /** Property path the error relates to, when known. */
+    readonly propertyPath?: string;
 
     constructor(
         code: AbcErrorCode,
         message: string,
-        details: { file?: string; objectPath?: string; cause?: unknown } = {},
+        details: { file?: string; objectPath?: string; propertyPath?: string; cause?: unknown } = {},
     ) {
         super(message);
         this.name = 'AlembicError';
         this.code = code;
         this.file = details.file;
         this.objectPath = details.objectPath;
+        this.propertyPath = details.propertyPath;
         if (details.cause !== undefined) {
             Object.defineProperty(this, 'cause', { value: details.cause, enumerable: false });
         }
@@ -39,7 +43,10 @@ export function isAlembicError(value: unknown): value is AlembicError {
 }
 
 /** Converts an error thrown by the native addon into an AlembicError. */
-export function wrapNativeError(error: unknown, details: { file?: string; objectPath?: string } = {}): AlembicError {
+export function wrapNativeError(
+    error: unknown,
+    details: { file?: string; objectPath?: string; propertyPath?: string } = {},
+): AlembicError {
     if (error instanceof AlembicError) {
         return error;
     }

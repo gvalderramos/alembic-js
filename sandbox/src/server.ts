@@ -21,7 +21,13 @@ const { file, root, box } = loadScene(abcPath);
 const glb = await toGlb(root);
 const sceneInfo = {
     info: file.getInfo(),
-    objects: file.getObjects(),
+    objects: file.getObjects().map((obj) => ({
+        ...obj,
+        userProperties: file.getUserProperties(obj.path),
+        attributes: file
+            .getAttributes(obj.path)
+            .map((attr) => `${attr.name} (${attr.pod}[${attr.extent}], ${attr.scope})`),
+    })),
     bounds: { min: box.min.toArray(), max: box.max.toArray() },
 };
 file.close();
@@ -50,7 +56,9 @@ http.createServer((req, res) => {
     if (url.pathname === '/scene.glb') {
         res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': glb.length }).end(glb);
     } else if (url.pathname === '/scene.json') {
-        res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(sceneInfo));
+        // BigInt values (64-bit user properties) aren't JSON-serializable.
+        const json = JSON.stringify(sceneInfo, (_key, value) => (typeof value === 'bigint' ? value.toString() : value));
+        res.writeHead(200, { 'Content-Type': 'application/json' }).end(json);
     } else if (url.pathname.startsWith('/three/')) {
         sendFile(res, threeDir, url.pathname.slice('/three/'.length));
     } else {

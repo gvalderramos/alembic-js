@@ -22,13 +22,19 @@ export interface LoadedScene {
 
 export function loadScene(abcPath: string, time = 0): LoadedScene {
     const file = AbcFile.open(abcPath);
-    const material = new THREE.MeshStandardMaterial({ color: 0xc8a165, metalness: 0.6, roughness: 0.35 });
-    const root = buildThreeScene(file, THREE, { time, material }) as THREE.Group;
+    const brass = new THREE.MeshStandardMaterial({ color: 0xc8a165, metalness: 0.6, roughness: 0.35 });
+    // Default materials show vertex colors (Cd/Col) when the file has them; use brass for the rest.
+    const root = buildThreeScene(file, THREE, { time }) as THREE.Group;
+    root.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        if (mesh.isMesh && !mesh.geometry.getAttribute('color')) mesh.material = brass;
+    });
     root.name = path.basename(abcPath);
     root.updateMatrixWorld(true);
     const box = new THREE.Box3();
     root.traverse((node) => {
-        if ((node as THREE.Mesh).isMesh) box.expandByObject(node);
+        const drawable = node as THREE.Mesh & THREE.Points & THREE.LineSegments;
+        if (drawable.isMesh || drawable.isPoints || drawable.isLineSegments) box.expandByObject(node);
     });
     return { file, root, box };
 }

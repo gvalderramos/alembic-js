@@ -2,7 +2,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { AlembicError } from './errors';
-import type { AbcCamera, AbcFileInfo, AbcMesh, AbcObject, AbcTransform } from './types';
+import type {
+    AbcCamera,
+    AbcCurves,
+    AbcFileInfo,
+    AbcMesh,
+    AbcObject,
+    AbcPoints,
+    AbcPropertyInfo,
+    AbcTransform,
+    AbcUserProperties,
+    AbcValue,
+} from './types';
 
 /** Shape of the C++ `AbcArchive` class (addons/AbcArchive.cpp). */
 export interface NativeArchive {
@@ -12,7 +23,12 @@ export interface NativeArchive {
     close(): void;
     getInfo(): AbcFileInfo;
     getObjects(): AbcObject[];
-    getMesh(objectPath: string, time?: number): AbcMesh;
+    getMesh(objectPath: string, time?: number, options?: { attributes?: string[] | '*'; layout?: string }): AbcMesh;
+    getPoints(objectPath: string, time?: number): AbcPoints;
+    getCurves(objectPath: string, time?: number): AbcCurves;
+    getProperties(objectPath: string, root?: string, recursive?: boolean, time?: number): AbcPropertyInfo[];
+    getProperty(objectPath: string, propertyPath: string, time?: number, expand?: boolean): AbcValue;
+    getUserProperties(objectPath: string, time?: number): AbcUserProperties;
     getTransform(objectPath: string, time?: number): AbcTransform;
     getCamera(objectPath: string, time?: number): AbcCamera;
 }

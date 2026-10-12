@@ -39,7 +39,7 @@ void writeQuad(Abc::OObject parent, const std::string& name)
 }
 
 // Unit cube with face-varying normals and UVs: 8 points, 6 quads, 24 corners.
-void writeCube(Abc::OObject parent, const std::string& name)
+AbcG::OPolyMesh writeCube(Abc::OObject parent, const std::string& name)
 {
     const std::vector<Imath::V3f> P = {
         {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, -0.5f}, {-0.5f, 0.5f, -0.5f},
@@ -70,6 +70,7 @@ void writeCube(Abc::OObject parent, const std::string& name)
     AbcG::OPolyMeshSchema::Sample sample{AbcG::P3fArraySample(P), Abc::Int32ArraySample(indices),
                                          Abc::Int32ArraySample(counts), uvSample, nSample};
     mesh.getSchema().set(sample);
+    return mesh;
 }
 
 AbcG::OXform writeXform(Abc::OObject parent, const std::string& name, const Imath::V3d& translate,
@@ -154,6 +155,162 @@ void unsupportedTypes(const std::filesystem::path& dir)
 
 } // namespace
 
+// Attributes and user properties (spec 0006).
+// /cube (xform) user properties: assetId, version, scale, enabled, tags, frameLabel (3 samples)
+// /cube/cubeShape (24 corners, 8 points, 6 faces) .arbGeomParams:
+//   Cd          C3f      facevarying, indexed (6 values, one color per face)
+//   pointWeight float32  vertex  (8)      faceId  int32   uniform (6)
+//   uv2         V2f      facevarying (24) tint    C4f     constant (1)
+//   bigId       uint64   vertex  (8, one value above 2^32)
+//   half        float16  vertex  (8)      flags   bool    vertex  (8)
+//   label       string   constant (1)
+// /plainShape: mesh without attributes or user properties
+void attributes(const std::filesystem::path& dir)
+{
+    Abc::OArchive archive = createArchive(dir / "attributes.abc");
+    const Alembic::AbcCoreAbstract::TimeSampling ts(1.0 / 24.0, 1.0 / 24.0);
+    const uint32_t tsIndex = archive.addTimeSampling(ts);
+
+    AbcG::OXform cube = writeXform(archive.getTop(), "cube", {0, 0, 0});
+    Abc::OCompoundProperty user = cube.getSchema().getUserProperties();
+    Abc::OStringProperty(user, "assetId").set("crate-042");
+    Abc::OInt32Property(user, "version").set(7);
+    Abc::ODoubleProperty(user, "scale").set(2.5);
+    Abc::OBoolProperty(user, "enabled").set(true);
+    const std::vector<std::string> tags = {"prop", "wood"};
+    Abc::OStringArrayProperty(user, "tags").set(Abc::StringArraySample(tags));
+    Abc::OStringProperty frameLabel(user, "frameLabel", tsIndex);
+    for (const char* label : {"start", "middle", "end"})
+        frameLabel.set(label);
+
+    AbcG::OPolyMesh shape = writeCube(cube, "cubeShape");
+    Abc::OCompoundProperty arb = shape.getSchema().getArbGeomParams();
+
+    const std::vector<Imath::C3f> faceColors = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 0}, {0, 1, 1}, {1, 0, 1}};
+    std::vector<uint32_t> colorIndices;
+    for (uint32_t f = 0; f < 6; ++f)
+        colorIndices.insert(colorIndices.end(), 4, f);
+    AbcG::OC3fGeomParam cd(arb, "Cd", true, AbcG::kFacevaryingScope, 1);
+    cd.set(AbcG::OC3fGeomParam::Sample(AbcG::C3fArraySample(faceColors), Abc::UInt32ArraySample(colorIndices),
+                                       AbcG::kFacevaryingScope));
+
+    std::vector<float> weights;
+    for (int p = 0; p < 8; ++p)
+        weights.push_back(p * 0.125f);
+    AbcG::OFloatGeomParam pointWeight(arb, "pointWeight", false, AbcG::kVertexScope, 1);
+    pointWeight.set(AbcG::OFloatGeomParam::Sample(Abc::FloatArraySample(weights), AbcG::kVertexScope));
+
+    const std::vector<int32_t> faceIds = {10, 11, 12, 13, 14, 15};
+    AbcG::OInt32GeomParam faceId(arb, "faceId", false, AbcG::kUniformScope, 1);
+    faceId.set(AbcG::OInt32GeomParam::Sample(Abc::Int32ArraySample(faceIds), AbcG::kUniformScope));
+
+    std::vector<Imath::V2f> uv2;
+    for (int c = 0; c < 24; ++c)
+        uv2.push_back(Imath::V2f(c * 0.5f, 1.0f));
+    AbcG::OV2fGeomParam uvSet(arb, "uv2", false, AbcG::kFacevaryingScope, 1);
+    uvSet.set(AbcG::OV2fGeomParam::Sample(AbcG::V2fArraySample(uv2), AbcG::kFacevaryingScope));
+
+    const std::vector<Imath::C4f> tint = {{0.25f, 0.5f, 0.75f, 1.0f}};
+    AbcG::OC4fGeomParam tintParam(arb, "tint", false, AbcG::kConstantScope, 1);
+    tintParam.set(AbcG::OC4fGeomParam::Sample(AbcG::C4fArraySample(tint), AbcG::kConstantScope));
+
+    std::vector<uint64_t> ids;
+    for (uint64_t p = 0; p < 8; ++p)
+        ids.push_back(p == 7 ? 5000000000ull : 100 + p);
+    AbcG::OUInt64GeomParam bigId(arb, "bigId", false, AbcG::kVertexScope, 1);
+    bigId.set(AbcG::OUInt64GeomParam::Sample(Abc::UInt64ArraySample(ids), AbcG::kVertexScope));
+
+    std::vector<Alembic::Util::float16_t> halves;
+    for (int p = 0; p < 8; ++p)
+        halves.push_back(Alembic::Util::float16_t(p * 0.5f));
+    AbcG::OHalfGeomParam half(arb, "half", false, AbcG::kVertexScope, 1);
+    half.set(AbcG::OHalfGeomParam::Sample(Abc::HalfArraySample(halves), AbcG::kVertexScope));
+
+    std::vector<Alembic::Util::bool_t> flags;
+    for (int p = 0; p < 8; ++p)
+        flags.push_back(p % 2 == 0);
+    AbcG::OBoolGeomParam flagParam(arb, "flags", false, AbcG::kVertexScope, 1);
+    flagParam.set(AbcG::OBoolGeomParam::Sample(Abc::BoolArraySample(flags), AbcG::kVertexScope));
+
+    const std::vector<std::string> label = {"crate"};
+    AbcG::OStringGeomParam labelParam(arb, "label", false, AbcG::kConstantScope, 1);
+    labelParam.set(AbcG::OStringGeomParam::Sample(Abc::StringArraySample(label), AbcG::kConstantScope));
+
+    writeCube(archive.getTop(), "plainShape");
+}
+
+// Points and curves (spec 0002).
+// /particles     4 points, ids 10..13, velocity (1,0,0) units/s, widths 0.1..0.4, 2 frames at 24 fps
+// /linearCurves  2 linear curves (3 and 4 vertices), per-curve widths
+// /linearLoop    1 periodic linear curve (unit square)
+// /bezierCurve   1 cubic Bezier (4 CVs), constant width 0.5
+// /bsplineCurve  1 cubic B-spline (5 CVs), per-vertex widths and UVs
+// /nurbsArc      rational quadratic quarter circle (order 3, knots 0 0 0 1 1 1, weights 1 sqrt(2)/2 1)
+// /badCurves     vertex counts that don't add up to the positions
+void pointsAndCurves(const std::filesystem::path& dir)
+{
+    Abc::OArchive archive = createArchive(dir / "points_and_curves.abc");
+    Abc::OObject top = archive.getTop();
+    const Alembic::AbcCoreAbstract::TimeSampling ts(1.0 / 24.0, 1.0 / 24.0);
+    const uint32_t tsIndex = archive.addTimeSampling(ts);
+
+    AbcG::OPoints particles(top, "particles", tsIndex);
+    const std::vector<uint64_t> ids = {10, 11, 12, 13};
+    const std::vector<Imath::V3f> velocities(4, Imath::V3f(1, 0, 0));
+    const std::vector<float> widths = {0.1f, 0.2f, 0.3f, 0.4f};
+    for (int frame = 0; frame < 2; ++frame) {
+        std::vector<Imath::V3f> P;
+        for (int i = 0; i < 4; ++i)
+            P.push_back(Imath::V3f(i + frame / 24.0f, 0, 0));
+        AbcG::OPointsSchema::Sample sample(
+            AbcG::P3fArraySample(P), Abc::UInt64ArraySample(ids), Abc::V3fArraySample(velocities),
+            AbcG::OFloatGeomParam::Sample(Abc::FloatArraySample(widths), AbcG::kVertexScope));
+        particles.getSchema().set(sample);
+    }
+
+    auto writeCurves = [&](const std::string& name, const std::vector<Imath::V3f>& P,
+                           const std::vector<int32_t>& counts, AbcG::CurveType type, AbcG::CurvePeriodicity wrap,
+                           AbcG::BasisType basis, const AbcG::OFloatGeomParam::Sample& widths,
+                           const AbcG::OV2fGeomParam::Sample& uvs = AbcG::OV2fGeomParam::Sample(),
+                           const std::vector<float>& weights = {}, const std::vector<uint8_t>& orders = {},
+                           const std::vector<float>& knots = {}) {
+        AbcG::OCurves curves(top, name);
+        AbcG::OCurvesSchema::Sample sample(AbcG::P3fArraySample(P), Abc::Int32ArraySample(counts), type, wrap, widths,
+                                           uvs, AbcG::ON3fGeomParam::Sample(), basis, Abc::FloatArraySample(weights),
+                                           Abc::UcharArraySample(orders), Abc::FloatArraySample(knots));
+        curves.getSchema().set(sample);
+    };
+
+    const std::vector<float> perCurve = {0.1f, 0.2f};
+    writeCurves("linearCurves", {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {0, 1, 0}, {1, 1, 0}, {2, 1, 0}, {3, 1, 0}}, {3, 4},
+                AbcG::kLinear, AbcG::kNonPeriodic, AbcG::kNoBasis,
+                AbcG::OFloatGeomParam::Sample(Abc::FloatArraySample(perCurve), AbcG::kUniformScope));
+
+    writeCurves("linearLoop", {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}}, {4}, AbcG::kLinear, AbcG::kPeriodic,
+                AbcG::kNoBasis, AbcG::OFloatGeomParam::Sample());
+
+    const std::vector<float> constantWidth = {0.5f};
+    writeCurves("bezierCurve", {{0, 0, 0}, {0, 1, 0}, {1, 1, 0}, {1, 0, 0}}, {4}, AbcG::kCubic, AbcG::kNonPeriodic,
+                AbcG::kBezierBasis,
+                AbcG::OFloatGeomParam::Sample(Abc::FloatArraySample(constantWidth), AbcG::kConstantScope));
+
+    const std::vector<float> vertexWidths = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f};
+    std::vector<Imath::V2f> curveUvs;
+    for (int i = 0; i < 5; ++i)
+        curveUvs.push_back(Imath::V2f(i / 4.0f, 0));
+    writeCurves("bsplineCurve", {{0, 0, 0}, {1, 2, 0}, {2, 0, 0}, {3, 2, 0}, {4, 0, 0}}, {5}, AbcG::kCubic,
+                AbcG::kNonPeriodic, AbcG::kBsplineBasis,
+                AbcG::OFloatGeomParam::Sample(Abc::FloatArraySample(vertexWidths), AbcG::kVertexScope),
+                AbcG::OV2fGeomParam::Sample(AbcG::V2fArraySample(curveUvs), AbcG::kVertexScope));
+
+    writeCurves("nurbsArc", {{1, 0, 0}, {1, 1, 0}, {0, 1, 0}}, {3}, AbcG::kVariableOrder, AbcG::kNonPeriodic,
+                AbcG::kBsplineBasis, AbcG::OFloatGeomParam::Sample(), AbcG::OV2fGeomParam::Sample(),
+                {1.0f, 0.70710678f, 1.0f}, {3}, {0, 0, 0, 1, 1, 1});
+
+    writeCurves("badCurves", {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}}, {5}, AbcG::kLinear, AbcG::kNonPeriodic, AbcG::kNoBasis,
+                AbcG::OFloatGeomParam::Sample());
+}
+
 int main(int argc, char** argv)
 {
     const std::filesystem::path dir = argc > 1 ? argv[1] : "test/fixtures";
@@ -163,6 +320,8 @@ int main(int argc, char** argv)
         transformedMesh(dir);
         nestedHierarchy(dir);
         unsupportedTypes(dir);
+        attributes(dir);
+        pointsAndCurves(dir);
     } catch (const std::exception& e) {
         std::cerr << "Failed to write fixtures: " << e.what() << std::endl;
         return 1;

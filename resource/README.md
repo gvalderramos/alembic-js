@@ -22,7 +22,7 @@ Rules (see [spec 0007](../specs/0007-test-assets.md)):
 
 | File | Size | Contents | Specs |
 |---|---|---|---|
-| `cloth_deform.abc` | 1.0 MB | 24×24 quad grid deformed by a Wave modifier, 30 frames at **30 fps**, constant topology. Normals, UVs, corner color `Col` (indexed). User properties on `/Cloth`: `assetId` (string), `version` (int32), `stiffness` (float64), `approved` (bool), `tags` (string[2]). | 0004, 0006 |
+| `cloth_deform.abc` | 1.0 MB | 24×24 quad grid deformed by a Wave modifier, 30 frames at **30 fps**, constant topology. Normals, UVs, corner color `Col` (indexed), second UV set `UVMap_001`, rest position `Pref`. User properties on `/Cloth`: `assetId` (string), `version` (int32), `stiffness` (float64), `approved` (bool), `tags` (string[2]). | 0004, 0006 |
 | `materials_subd.abc` | 6 KB | `/Box/BoxShape`: cube with 3 materials, so face sets `Red`, `Green`, `Blue`. User properties `shot`, `frameRange` (int32[2]) on the xform and `lod` on the shape. `/SubdCage/SubdCageShape`: **subd** cage with 4 creased edges (`.creaseIndices`, `.creaseSharpnesses`). | 0003, 0006 |
 | `camera_rigid_instances.abc` | 99 KB | 60 frames at 30 fps. `/ShotCam` moves and its lens goes from 35 to 50 mm. `/Pivot` rotates 180° around its vertical axis, carrying `/Pivot/Moon`, which also scales 1 → 2. Three `PropInstanceN` empties reference one collection (exported with `use_instancing`). | 0004, instancing |
 | `curves_hair.abc` | 12 KB | Curves: `/PolyLine` (linear, 4 vertices), `/Bezier` (cubic Bezier: **7 control vertices but only 3 widths**), `/NurbsLoop` (periodic NURBS, order 4, no knots written), `/Fur` (64 hair strands × 6 points, per-point `width`). | 0002 |
@@ -33,7 +33,7 @@ Rules (see [spec 0007](../specs/0007-test-assets.md)):
 ### Blender export behaviour worth knowing
 These came up while building the assets, and readers must handle them:
 - **User properties are written as arrays**, even single values (`arraysize=1`). Spec 0006 unwraps them.
-- **Only the active color attribute and the active UV map are exported.** Extra UV sets and other color attributes are dropped.
+- **Only the active color attribute is exported** (`Col`); the extra `Heat` color is dropped. A second UV set *is* exported, as the `.arbGeomParams` attribute `UVMap_001`, together with a `Pref` rest position (from Blender's "orcos" option).
 - **Mixing spline types** (poly, Bezier, NURBS) in one curve object writes an empty curve with 0 samples. The script uses one spline type per object.
 - **Bezier curves** are exported with their handles as control vertices (3 points become 7 control vertices), but widths stay per original point.
 - **Face sets** get names from the materials. A subd object without materials gets one face set named `default`.

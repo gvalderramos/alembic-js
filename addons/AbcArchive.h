@@ -29,6 +29,11 @@ private:
     Napi::Value getInfo(const Napi::CallbackInfo& info);
     Napi::Value getObjects(const Napi::CallbackInfo& info);
     Napi::Value getMesh(const Napi::CallbackInfo& info);
+    Napi::Value getPoints(const Napi::CallbackInfo& info);
+    Napi::Value getCurves(const Napi::CallbackInfo& info);
+    Napi::Value getProperties(const Napi::CallbackInfo& info);
+    Napi::Value getProperty(const Napi::CallbackInfo& info);
+    Napi::Value getUserProperties(const Napi::CallbackInfo& info);
     Napi::Value getTransform(const Napi::CallbackInfo& info);
     Napi::Value getCamera(const Napi::CallbackInfo& info);
 
