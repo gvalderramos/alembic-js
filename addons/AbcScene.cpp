@@ -1,8 +1,10 @@
 #include "AbcScene.h"
+#include "AbcMaterials.h"
 #include "AbcProperties.h"
 
 #include <Alembic/AbcCoreFactory/All.h>
 #include <Alembic/AbcGeom/All.h>
+#include <Alembic/AbcMaterial/All.h>
 
 #include <algorithm>
 #include <cmath>
@@ -49,6 +51,7 @@ std::string classify(const AbcG::IObject& obj)
     if (AbcG::INuPatch::matches(md)) return "nupatch";
     if (AbcG::ILight::matches(md)) return "light";
     if (AbcG::IFaceSet::matches(md)) return "faceset";
+    if (Alembic::AbcMaterial::IMaterial::matches(md)) return "material";
     return "unknown";
 }
 
@@ -417,16 +420,91 @@ std::string digestOf(const Alembic::Abc::IInt32ArrayProperty& prop, const Alembi
 
 std::string cacheKey(const std::string& path, const MeshOptions& options)
 {
-    std::string key = path + (options.forceCorners ? "|corners|" : "|auto|") + (options.allAttributes ? "*" : "");
+    std::string key = path + (options.forceCorners ? "|corners|" : "|auto|") + (options.allAttributes ? "*" : "") +
+                      (options.groupByFaceSet ? "|grouped|" : "|");
     for (const auto& name : options.attributes)
         key += name + ",";
     return key;
 }
 
+// Groups triangles by face set (spec 0003). `triStart[f]`/`triCount[f]` locate the triangles of
+// polygon f in `indices`. Faces belong to the first set listing them.
+void groupFaceSets(MeshData& mesh, const std::vector<FaceSetData>& sets, const std::string& meshMaterial,
+                   const std::vector<size_t>& triStart, const std::vector<size_t>& triCount, const MeshOptions& options)
+{
+    const size_t numFaces = triStart.size();
+    std::vector<int64_t> owner(numFaces, -1);
+    for (size_t s = 0; s < sets.size(); ++s) {
+        for (int32_t face : sets[s].faces) {
+            if (owner[face] == -1) {
+                owner[face] = static_cast<int64_t>(s);
+            } else if (owner[face] != static_cast<int64_t>(s)) {
+                mesh.faceSetsOverlap = true;
+            }
+        }
+    }
+
+    auto addGroup = [&](int64_t set, size_t start, size_t count) {
+        if (count == 0) return;
+        MaterialSlot slot;
+        if (set >= 0) {
+            slot.name = slot.faceSet = sets[set].name;
+            slot.materialPath = sets[set].materialPath;
+        } else {
+            slot.name = "default";
+            slot.materialPath = meshMaterial;
+        }
+        mesh.groups.push_back({start, count, slot.faceSet, mesh.materialSlots.size()});
+        mesh.materialSlots.push_back(slot);
+    };
+
+    if (options.groupByFaceSet) {
+        // Reorder: each face set's triangles, then the faces in no set.
+        std::vector<uint32_t> indices;
+        std::vector<uint32_t> faceOfTriangle;
+        indices.reserve(mesh.indices.size());
+        for (int64_t set = 0; set <= static_cast<int64_t>(sets.size()); ++set) {
+            const int64_t key = set == static_cast<int64_t>(sets.size()) ? -1 : set;
+            const size_t start = indices.size() / 3;
+            for (size_t f = 0; f < numFaces; ++f) {
+                if (owner[f] != key) continue;
+                for (size_t t = 0; t < triCount[f]; ++t) {
+                    const size_t tri = triStart[f] + t;
+                    indices.insert(indices.end(), mesh.indices.begin() + tri * 3, mesh.indices.begin() + tri * 3 + 3);
+                    faceOfTriangle.push_back(static_cast<uint32_t>(f));
+                }
+            }
+            addGroup(key, start, indices.size() / 3 - start);
+        }
+        mesh.indices.swap(indices);
+        if (options.triangleToFace) mesh.triangleToFace.swap(faceOfTriangle);
+        return;
+    }
+
+    // Keep the order; report groups only if every set is one contiguous run of faces.
+    std::vector<std::pair<int64_t, size_t>> runs; // (owner, first face)
+    for (size_t f = 0; f < numFaces; ++f) {
+        if (runs.empty() || runs.back().first != owner[f]) runs.emplace_back(owner[f], f);
+    }
+    std::vector<bool> seen(sets.size() + 1, false);
+    for (const auto& run : runs) {
+        const size_t slot = run.first < 0 ? sets.size() : static_cast<size_t>(run.first);
+        if (seen[slot]) return; // a set appears in several runs: no groups without reordering
+        seen[slot] = true;
+    }
+    for (size_t r = 0; r < runs.size(); ++r) {
+        const size_t firstFace = runs[r].second;
+        const size_t endFace = r + 1 < runs.size() ? runs[r + 1].second : numFaces;
+        const size_t start = triStart[firstFace];
+        const size_t end = endFace < numFaces ? triStart[endFace] : mesh.indices.size() / 3;
+        addGroup(runs[r].first, start, end - start);
+    }
+}
+
 template <class SchemaT>
 MeshData readMeshSchema(SchemaT& schema, const ObjectRecord& rec, const SampleSpec& spec,
                         const AbcG::IN3fGeomParam* normalsParam, const MeshOptions& options, const ArchiveData& data,
-                        bool withTopology)
+                        bool withTopology, const Alembic::Abc::IObject& meshObject)
 {
     const SampleSpan span = SelectSamples(schema.getTimeSampling(), schema.getNumSamples(), spec);
     const Alembic::Abc::ISampleSelector sel(static_cast<Alembic::AbcCoreAbstract::index_t>(span.i0));
@@ -588,6 +666,11 @@ MeshData readMeshSchema(SchemaT& schema, const ObjectRecord& rec, const SampleSp
     // Fan-triangulate. Alembic winds polygons clockwise; three.js/WebGL expect
     // counter-clockwise, so each triangle is emitted reversed. Per-frame reads skip this.
     size_t offset = 0;
+    std::vector<size_t> triStart, triCount;
+    if (withTopology) {
+        triStart.reserve(faceCounts->size());
+        triCount.reserve(faceCounts->size());
+    }
     for (size_t f = 0; withTopology && f < faceCounts->size(); ++f) {
         const int32_t count = fc[f];
         if (count < 0 || offset + static_cast<size_t>(count) > numCorners) {
@@ -596,12 +679,26 @@ MeshData readMeshSchema(SchemaT& schema, const ObjectRecord& rec, const SampleSp
         auto corner = [&](size_t k) -> uint32_t {
             return static_cast<uint32_t>(perCorner ? offset + k : static_cast<size_t>(fi[offset + k]));
         };
+        triStart.push_back(mesh.indices.size() / 3);
+        triCount.push_back(count >= 3 ? static_cast<size_t>(count - 2) : 0);
         for (int32_t k = 1; k + 1 < count; ++k) {
             mesh.indices.push_back(corner(0));
             mesh.indices.push_back(corner(k + 1));
             mesh.indices.push_back(corner(k));
         }
         offset += count;
+    }
+
+    if (withTopology) {
+        if (options.triangleToFace) {
+            mesh.triangleToFace.resize(mesh.indices.size() / 3);
+            for (size_t f = 0; f < triStart.size(); ++f) {
+                for (size_t t = 0; t < triCount[f]; ++t)
+                    mesh.triangleToFace[triStart[f] + t] = static_cast<uint32_t>(f);
+            }
+        }
+        const std::vector<FaceSetData> sets = FaceSetsOf(meshObject, span.t0, faceCounts->size());
+        if (!sets.empty()) groupFaceSets(mesh, sets, MaterialAssignmentOf(meshObject), triStart, triCount, options);
     }
 
     if (!sources.empty()) {
@@ -736,10 +833,10 @@ MeshData readMesh(const ArchiveData& data, const std::string& objectPath, const 
             AbcG::IPolyMesh polyMesh(obj, Alembic::Abc::kWrapExisting);
             auto& schema = polyMesh.getSchema();
             auto normals = schema.getNormalsParam();
-            mesh = readMeshSchema(schema, rec, spec, &normals, options, data, withTopology);
+            mesh = readMeshSchema(schema, rec, spec, &normals, options, data, withTopology, obj);
         } else {
             AbcG::ISubD subd(obj, Alembic::Abc::kWrapExisting);
-            mesh = readMeshSchema(subd.getSchema(), rec, spec, nullptr, options, data, withTopology);
+            mesh = readMeshSchema(subd.getSchema(), rec, spec, nullptr, options, data, withTopology, obj);
         }
         mesh.transform = WorldMatrix(obj, spec);
         return mesh;

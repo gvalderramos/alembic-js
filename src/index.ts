@@ -4,9 +4,11 @@ export type { AbcErrorCode } from './errors';
 export type {
     AbcCamera,
     AbcCurves,
+    AbcFaceSet,
     AbcArrayData,
     AbcArrayValue,
     AbcFileInfo,
+    AbcMaterial,
     AbcMesh,
     AbcMeshAttribute,
     AbcMeshFrame,

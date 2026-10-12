@@ -16,7 +16,8 @@ export type FixtureName =
     | 'unsupported_types'
     | 'attributes'
     | 'points_and_curves'
-    | 'animation';
+    | 'animation'
+    | 'face_sets';
 
 export function fixture(name: FixtureName): string {
     return path.join(repoRoot, 'test', 'fixtures', `${name}.abc`);
