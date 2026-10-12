@@ -68,6 +68,132 @@ export interface AbcMesh {
     faceCount: number;
     /** World matrix of the mesh at the sampled time. */
     transform: Matrix4Array;
+    /**
+     * 'points': one vertex per mesh point. 'corners': one vertex per face corner, used when
+     * normals, UVs or requested attributes are stored per face corner or per face.
+     */
+    layout: 'points' | 'corners';
+    /** Requested `.arbGeomParams`, laid out like `positions` (see MeshOptions.attributes). */
+    attributes?: Record<string, AbcMeshAttribute>;
+}
+
+/** A geometry attribute laid out like the mesh positions. */
+export interface AbcMeshAttribute {
+    /** `count * itemSize` values. 64-bit integers are narrowed to 32 bits; float16/float64 become float32. */
+    data: Float32Array | Int32Array | Uint32Array | Uint8Array;
+    itemSize: number;
+    /** One per vertex, or 1 when `constant`. */
+    count: number;
+    /** Stored Alembic type. */
+    pod: AbcPod;
+    interpretation?: string;
+    /** Element the values were attached to in the file. */
+    sourceScope: 'vertex' | 'facevarying' | 'uniform' | 'constant';
+    /** Constant attributes are returned once instead of repeated per vertex. */
+    constant: boolean;
+}
+
+export interface MeshOptions extends SampleOptions {
+    /**
+     * Names of `.arbGeomParams` to include, or '*' for every numeric one. Names a mesh doesn't
+     * have are ignored. Default: none, so the vertex layout only changes when you ask.
+     */
+    attributes?: string[] | '*';
+    /** Force one vertex per face corner, e.g. to keep the same layout across calls. */
+    layout?: 'points' | 'corners';
+}
+
+/** Stored Alembic data type ("plain old data"). */
+export type AbcPod =
+    | 'bool'
+    | 'uint8'
+    | 'int8'
+    | 'uint16'
+    | 'int16'
+    | 'uint32'
+    | 'int32'
+    | 'uint64'
+    | 'int64'
+    | 'float16'
+    | 'float32'
+    | 'float64'
+    | 'string'
+    | 'wstring'
+    | 'unknown';
+
+export type AbcScope = 'constant' | 'uniform' | 'varying' | 'vertex' | 'facevarying' | 'unknown';
+
+/** A property in an object's property tree. Listing never reads sample values. */
+export interface AbcPropertyInfo {
+    name: string;
+    /** Path relative to the object, e.g. ".geom/.arbGeomParams/Cd". */
+    path: string;
+    kind: 'scalar' | 'array' | 'compound';
+    /** Scalar, array and indexed properties only. */
+    pod?: AbcPod;
+    /** Components per element, e.g. 3 for float32[3]. */
+    extent?: number;
+    /** e.g. 'rgb', 'point', 'normal', 'vector'. */
+    interpretation?: string;
+    /** Geometry parameters only. */
+    scope?: AbcScope;
+    /** Compound holding `.vals` and `.indices`. */
+    indexed?: boolean;
+    numSamples?: number;
+    animated?: boolean;
+    /** Array elements at the sampled time (expanded size for indexed properties). Read without loading values. */
+    count?: number;
+    metadata: Record<string, string>;
+    /** Present for compounds when listed recursively. */
+    children?: AbcPropertyInfo[];
+}
+
+/** Typed data of a property; 64-bit integers are BigInt arrays, float16 is widened to float32, bool is 0/1. */
+export type AbcArrayData =
+    | Float32Array
+    | Float64Array
+    | Int8Array
+    | Uint8Array
+    | Int16Array
+    | Uint16Array
+    | Int32Array
+    | Uint32Array
+    | BigInt64Array
+    | BigUint64Array
+    | string[];
+
+export interface AbcArrayValue {
+    pod: AbcPod;
+    extent: number;
+    /** Number of elements (`data.length / extent`). */
+    count: number;
+    data: AbcArrayData;
+    scope?: AbcScope;
+    interpretation?: string;
+    /** Present when an indexed property is read with `expand: false`. */
+    indices?: Uint32Array;
+}
+
+export type AbcPrimitive = boolean | number | bigint | string;
+
+/** Value of a property: scalars become primitives (or arrays when extent > 1), arrays become AbcArrayValue. */
+export type AbcValue = AbcPrimitive | AbcPrimitive[] | AbcArrayValue;
+
+/** User properties as a plain object. One-element arrays are unwrapped; compounds become nested objects. */
+export interface AbcUserProperties {
+    [name: string]: AbcPrimitive | AbcPrimitive[] | AbcUserProperties;
+}
+
+export interface PropertyListOptions extends SampleOptions {
+    /** Compound to start from, e.g. ".geom" or ".arbGeomParams". Default: the object's top compound. */
+    root?: string;
+    /** Include the children of compounds. Default false. */
+    recursive?: boolean;
+}
+
+export interface PropertyReadOptions extends SampleOptions {
+    /** Apply `.indices` to `.vals` for indexed properties. Default true. */
+    expand?: boolean;
 }
 
 export interface AbcTransform {

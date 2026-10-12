@@ -1,4 +1,5 @@
 #include "AbcScene.h"
+#include "AbcProperties.h"
 
 #include <Alembic/AbcCoreFactory/All.h>
 #include <Alembic/AbcGeom/All.h>
@@ -6,6 +7,7 @@
 #include <cmath>
 #include <filesystem>
 #include <functional>
+#include <limits>
 
 namespace AbcG = Alembic::AbcGeom;
 namespace AbcF = Alembic::AbcCoreFactory;
@@ -93,8 +95,10 @@ void visit(const AbcG::IObject& obj, const std::string& parent, ArchiveData& dat
     }
 }
 
+} // namespace
+
 // Resolves "/a/b/c" by walking child names from the archive root.
-AbcG::IObject resolve(const ArchiveData& data, const std::string& objectPath)
+Alembic::Abc::IObject ResolveObject(const ArchiveData& data, const std::string& objectPath)
 {
     if (!data.find(objectPath)) {
         throw AbcError(codes::ObjectNotFound, "Object '" + objectPath + "' does not exist in " + data.path);
@@ -114,6 +118,8 @@ AbcG::IObject resolve(const ArchiveData& data, const std::string& objectPath)
     }
     return current;
 }
+
+namespace {
 
 // World matrix: product of every IXform from the root down to (and including) obj.
 Matrix worldMatrix(AbcG::IObject obj, const Alembic::Abc::ISampleSelector& sel)
@@ -143,9 +149,119 @@ const ObjectRecord& requireRecord(const ArchiveData& data, const std::string& ob
     return *rec;
 }
 
+// An .arbGeomParams value resolved to the mesh element it is attached to.
+struct AttributeSource {
+    std::string name;
+    PropertyValue value;
+    std::string scope; // vertex | facevarying | uniform | constant
+};
+
+std::string attributeScope(const AttributeSource& src, size_t numPoints, size_t numCorners, size_t numFaces,
+                           const std::string& meshPath)
+{
+    auto expected = [&](const std::string& scope) -> size_t {
+        if (scope == "vertex" || scope == "varying") return numPoints;
+        if (scope == "facevarying") return numCorners;
+        if (scope == "uniform") return numFaces;
+        if (scope == "constant") return 1;
+        return std::numeric_limits<size_t>::max();
+    };
+    const size_t count = src.value.count;
+    if (expected(src.value.scope) == count) return src.value.scope == "varying" ? "vertex" : src.value.scope;
+    // Missing or inconsistent scope: infer it from the element count.
+    for (const char* scope : {"vertex", "facevarying", "uniform", "constant"}) {
+        if (expected(scope) == count) return scope;
+    }
+    throw AbcError(codes::MalformedData, "Attribute '" + src.name + "' on mesh '" + meshPath + "' has " +
+                                             std::to_string(count) + " values, which matches no geometry scope (" +
+                                             std::to_string(numPoints) + " points, " + std::to_string(numCorners) +
+                                             " corners, " + std::to_string(numFaces) + " faces)");
+}
+
+std::vector<AttributeSource> readAttributeSources(const Alembic::Abc::ICompoundProperty& arb,
+                                                  const MeshOptions& options, const Alembic::Abc::ISampleSelector& sel,
+                                                  const std::string& meshPath)
+{
+    std::vector<AttributeSource> sources;
+    if (!arb.valid() || (!options.allAttributes && options.attributes.empty())) return sources;
+    const std::vector<std::string> names = options.allAttributes ? ChildNames(arb) : options.attributes;
+    for (const std::string& name : names) {
+        const auto* header = arb.getPropertyHeader(name);
+        if (!header) continue; // requested names that this mesh doesn't have are ignored
+        const bool plainCompound =
+            header->isCompound() && !Alembic::Abc::ICompoundProperty(arb, name).getPropertyHeader(".vals");
+        if (plainCompound || header->isScalar()) {
+            if (options.allAttributes) continue;
+            throw AbcError(codes::UnsupportedType,
+                           "Attribute '" + name + "' on mesh '" + meshPath + "' is not an array geometry parameter");
+        }
+        PropertyValue value = ReadValue(arb, name, sel, true);
+        if (value.isString() || value.pod == "unknown") {
+            if (options.allAttributes) continue;
+            throw AbcError(codes::UnsupportedType, "Attribute '" + name + "' on mesh '" + meshPath + "' has type '" +
+                                                       value.pod + "'; read it with getProperty() instead");
+        }
+        sources.push_back({name, std::move(value), ""});
+    }
+    return sources;
+}
+
+[[noreturn]] void tooWide(const std::string& name, const std::string& meshPath, const std::string& value)
+{
+    throw AbcError(codes::UnsupportedType, "Attribute '" + name + "' on mesh '" + meshPath + "' holds " + value +
+                                               ", which doesn't fit in 32 bits; read it with getProperty() instead");
+}
+
+MeshAttribute layoutAttribute(const AttributeSource& src, const std::vector<size_t>& elementOf, bool constant,
+                              const std::string& meshPath)
+{
+    const PropertyValue& v = src.value;
+    MeshAttribute out;
+    out.name = src.name;
+    out.pod = v.pod;
+    out.scope = src.scope;
+    out.interpretation = v.interpretation;
+    out.itemSize = v.extent;
+    out.constant = constant;
+    out.count = constant ? 1 : elementOf.size();
+
+    if (v.pod == "float16" || v.pod == "float32" || v.pod == "float64") {
+        out.kind = "float32";
+    } else if (v.pod == "bool" || v.pod == "uint8") {
+        out.kind = "uint8";
+    } else if (v.pod == "uint16" || v.pod == "uint32" || v.pod == "uint64") {
+        out.kind = "uint32";
+    } else {
+        out.kind = "int32";
+    }
+
+    for (size_t e = 0; e < out.count; ++e) {
+        const size_t element = constant ? 0 : elementOf[e];
+        for (size_t c = 0; c < out.itemSize; ++c) {
+            const size_t i = element * v.extent + c;
+            if (out.kind == "float32") {
+                out.f32.push_back(static_cast<float>(v.numberAt(i)));
+            } else if (out.kind == "uint8") {
+                out.u8.push_back(static_cast<uint8_t>(v.numberAt(i)));
+            } else if (out.kind == "uint32") {
+                const uint64_t value = v.pod == "uint64" ? v.uint64At(i) : static_cast<uint64_t>(v.numberAt(i));
+                if (value > std::numeric_limits<uint32_t>::max()) tooWide(src.name, meshPath, std::to_string(value));
+                out.u32.push_back(static_cast<uint32_t>(value));
+            } else {
+                const int64_t value = v.pod == "int64" ? v.int64At(i) : static_cast<int64_t>(v.numberAt(i));
+                if (value < std::numeric_limits<int32_t>::min() || value > std::numeric_limits<int32_t>::max()) {
+                    tooWide(src.name, meshPath, std::to_string(value));
+                }
+                out.i32.push_back(static_cast<int32_t>(value));
+            }
+        }
+    }
+    return out;
+}
+
 template <class SchemaT>
 MeshData readMeshSchema(SchemaT& schema, const ObjectRecord& rec, const Alembic::Abc::ISampleSelector& sel,
-                        const AbcG::IN3fGeomParam* normalsParam)
+                        const AbcG::IN3fGeomParam* normalsParam, const MeshOptions& options)
 {
     typename SchemaT::Sample sample;
     schema.get(sample, sel);
@@ -185,13 +301,23 @@ MeshData readMeshSchema(SchemaT& schema, const ObjectRecord& rec, const Alembic:
     if (N && !attrMatches(N->size(), nFaceVarying)) N.reset();
     if (UV && !attrMatches(UV->size(), uvFaceVarying)) UV.reset();
 
-    // Face-varying attributes need one vertex per face corner.
-    const bool perCorner = (N && nFaceVarying) || (UV && uvFaceVarying);
+    // Arbitrary attributes, resolved to the element (point, corner, face) they belong to.
+    std::vector<AttributeSource> sources = readAttributeSources(schema.getArbGeomParams(), options, sel, rec.path);
+    bool attributesNeedCorners = false;
+    for (auto& src : sources) {
+        src.scope = attributeScope(src, numPoints, numCorners, faceCounts->size(), rec.path);
+        attributesNeedCorners = attributesNeedCorners || src.scope == "facevarying" || src.scope == "uniform";
+    }
+
+    // Face-varying (and per-face) data needs one vertex per face corner.
+    const bool perCorner =
+        (N && nFaceVarying) || (UV && uvFaceVarying) || attributesNeedCorners || options.forceCorners;
 
     MeshData mesh;
     mesh.name = rec.name;
     mesh.path = rec.path;
     mesh.type = rec.type;
+    mesh.layout = perCorner ? "corners" : "points";
     mesh.faceCount = faceCounts->size();
 
     for (size_t c = 0; c < numCorners; ++c) {
@@ -242,6 +368,32 @@ MeshData readMeshSchema(SchemaT& schema, const ObjectRecord& rec, const Alembic:
             mesh.indices.push_back(corner(k));
         }
         offset += count;
+    }
+
+    if (!sources.empty()) {
+        // Element index of every output vertex, for each scope.
+        const size_t numVerts = mesh.positions.size() / 3;
+        std::vector<size_t> pointOf(numVerts), cornerOf(numVerts), faceOf;
+        for (size_t v = 0; v < numVerts; ++v) {
+            pointOf[v] = perCorner ? static_cast<size_t>(fi[v]) : v;
+            cornerOf[v] = v;
+        }
+        if (perCorner) {
+            faceOf.reserve(numCorners);
+            for (size_t f = 0; f < faceCounts->size(); ++f)
+                faceOf.insert(faceOf.end(), static_cast<size_t>(fc[f]), f);
+        }
+        for (const auto& src : sources) {
+            const std::vector<size_t>& elementOf = src.scope == "facevarying" ? cornerOf
+                                                   : src.scope == "uniform"   ? faceOf
+                                                                              : pointOf;
+            try {
+                mesh.attributes.push_back(layoutAttribute(src, elementOf, src.scope == "constant", rec.path));
+            } catch (const AbcError& e) {
+                // With '*', attributes that can't be laid out (e.g. 64-bit values above 2^32) are skipped.
+                if (!options.allAttributes || e.code() != codes::UnsupportedType) throw;
+            }
+        }
     }
     return mesh;
 }
@@ -333,7 +485,7 @@ std::shared_ptr<ArchiveData> OpenArchive(const std::string& path)
     return data;
 }
 
-MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, double time)
+MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, double time, const MeshOptions& options)
 {
     const ObjectRecord& rec = requireRecord(data, objectPath);
     if (rec.type != "mesh" && rec.type != "subd") {
@@ -341,17 +493,17 @@ MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, double
                                                    "'; only 'mesh' and 'subd' provide geometry");
     }
     return guarded("mesh '" + objectPath + "'", [&] {
-        AbcG::IObject obj = resolve(data, objectPath);
+        AbcG::IObject obj = ResolveObject(data, objectPath);
         Alembic::Abc::ISampleSelector sel(time);
         MeshData mesh;
         if (rec.type == "mesh") {
             AbcG::IPolyMesh polyMesh(obj, Alembic::Abc::kWrapExisting);
             auto& schema = polyMesh.getSchema();
             auto normals = schema.getNormalsParam();
-            mesh = readMeshSchema(schema, rec, sel, &normals);
+            mesh = readMeshSchema(schema, rec, sel, &normals, options);
         } else {
             AbcG::ISubD subd(obj, Alembic::Abc::kWrapExisting);
-            mesh = readMeshSchema(subd.getSchema(), rec, sel, nullptr);
+            mesh = readMeshSchema(subd.getSchema(), rec, sel, nullptr, options);
         }
         mesh.transform = worldMatrix(obj, sel);
         return mesh;
@@ -362,7 +514,7 @@ TransformData ReadTransform(const ArchiveData& data, const std::string& objectPa
 {
     const ObjectRecord& rec = requireRecord(data, objectPath);
     return guarded("transform of '" + objectPath + "'", [&] {
-        AbcG::IObject obj = resolve(data, objectPath);
+        AbcG::IObject obj = ResolveObject(data, objectPath);
         Alembic::Abc::ISampleSelector sel(time);
         TransformData out;
         out.path = objectPath;
@@ -388,7 +540,7 @@ CameraData ReadCamera(const ArchiveData& data, const std::string& objectPath, do
                        "Object '" + objectPath + "' is of type '" + rec.type + "', not 'camera'");
     }
     return guarded("camera '" + objectPath + "'", [&] {
-        AbcG::IObject obj = resolve(data, objectPath);
+        AbcG::IObject obj = ResolveObject(data, objectPath);
         Alembic::Abc::ISampleSelector sel(time);
         AbcG::ICamera camera(obj, Alembic::Abc::kWrapExisting);
         AbcG::CameraSample sample;

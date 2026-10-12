@@ -1,4 +1,5 @@
 #include "AbcArchive.h"
+#include "AbcConvert.h"
 
 #include <cmath>
 #include <cstring>
@@ -58,6 +59,43 @@ Napi::Array toArray(Napi::Env env, const abcjs::Matrix& m)
     for (uint32_t i = 0; i < m.size(); ++i)
         arr.Set(i, Napi::Number::New(env, m[i]));
     return arr;
+}
+
+// Parses getMesh's options object: { attributes?: string[] | '*', layout?: 'points' | 'corners' }.
+abcjs::MeshOptions meshOptions(const Napi::CallbackInfo& info, size_t index)
+{
+    abcjs::MeshOptions options;
+    if (info.Length() <= index || info[index].IsUndefined() || info[index].IsNull()) return options;
+    if (!info[index].IsObject()) {
+        throwCoded(info.Env(), codes::InvalidArgument, "Expected mesh options to be an object");
+    }
+    Napi::Object obj = info[index].As<Napi::Object>();
+    Napi::Value attributes = obj.Get("attributes");
+    if (attributes.IsString() && attributes.As<Napi::String>().Utf8Value() == "*") {
+        options.allAttributes = true;
+    } else if (attributes.IsArray()) {
+        Napi::Array names = attributes.As<Napi::Array>();
+        for (uint32_t i = 0; i < names.Length(); ++i) {
+            Napi::Value name = names.Get(i);
+            if (!name.IsString()) {
+                throwCoded(info.Env(), codes::InvalidArgument, "Expected attribute names to be strings");
+            }
+            options.attributes.push_back(name.As<Napi::String>().Utf8Value());
+        }
+    } else if (!attributes.IsUndefined() && !attributes.IsNull()) {
+        throwCoded(info.Env(), codes::InvalidArgument, "Expected attributes to be an array of names or '*'");
+    }
+    Napi::Value layout = obj.Get("layout");
+    if (layout.IsString()) {
+        const std::string value = layout.As<Napi::String>().Utf8Value();
+        if (value != "points" && value != "corners") {
+            throwCoded(info.Env(), codes::InvalidArgument, "Expected layout to be 'points' or 'corners'");
+        }
+        options.forceCorners = value == "corners";
+    } else if (!layout.IsUndefined() && !layout.IsNull()) {
+        throwCoded(info.Env(), codes::InvalidArgument, "Expected layout to be 'points' or 'corners'");
+    }
+    return options;
 }
 
 template <class TypedArrayT, class T> TypedArrayT toTypedArray(Napi::Env env, const std::vector<T>& values)
@@ -207,19 +245,69 @@ Napi::Value AbcArchive::getMesh(const Napi::CallbackInfo& info)
     const auto& data = requireData(env);
     const std::string objectPath = requireObjectPath(info);
     const double time = optionalTime(info, 1);
+    const abcjs::MeshOptions options = meshOptions(info, 2);
     return translate(env, [&]() -> Napi::Value {
-        abcjs::MeshData mesh = abcjs::ReadMesh(data, objectPath, time);
+        abcjs::MeshData mesh = abcjs::ReadMesh(data, objectPath, time, options);
         Napi::Object out = Napi::Object::New(env);
         out.Set("name", mesh.name);
         out.Set("path", mesh.path);
         out.Set("type", mesh.type);
+        out.Set("layout", mesh.layout);
         out.Set("positions", toTypedArray<Napi::Float32Array>(env, mesh.positions));
         if (!mesh.normals.empty()) out.Set("normals", toTypedArray<Napi::Float32Array>(env, mesh.normals));
         if (!mesh.uvs.empty()) out.Set("uvs", toTypedArray<Napi::Float32Array>(env, mesh.uvs));
         out.Set("indices", toTypedArray<Napi::Uint32Array>(env, mesh.indices));
         out.Set("faceCount", Napi::Number::New(env, static_cast<double>(mesh.faceCount)));
         out.Set("transform", toArray(env, mesh.transform));
+        if (!mesh.attributes.empty()) {
+            Napi::Object attributes = Napi::Object::New(env);
+            for (const auto& attribute : mesh.attributes) {
+                attributes.Set(attribute.name, abcjs::MeshAttributeToJs(env, attribute));
+            }
+            out.Set("attributes", attributes);
+        }
         return out;
+    });
+}
+
+Napi::Value AbcArchive::getProperties(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    std::string root;
+    if (info.Length() > 1 && info[1].IsString()) root = info[1].As<Napi::String>().Utf8Value();
+    const bool recursive = info.Length() > 2 && info[2].ToBoolean().Value();
+    const double time = optionalTime(info, 3);
+    return translate(env, [&]() -> Napi::Value {
+        return abcjs::PropertyInfosToJs(env, abcjs::ListProperties(data, objectPath, root, recursive, time));
+    });
+}
+
+Napi::Value AbcArchive::getProperty(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    if (info.Length() < 2 || !info[1].IsString()) {
+        throwCoded(env, codes::InvalidArgument, "Expected a property path string, e.g. '.arbGeomParams/Cd'");
+    }
+    const std::string propertyPath = info[1].As<Napi::String>().Utf8Value();
+    const double time = optionalTime(info, 2);
+    const bool expand = info.Length() <= 3 || info[3].IsUndefined() || info[3].ToBoolean().Value();
+    return translate(env, [&]() -> Napi::Value {
+        return abcjs::PropertyValueToJs(env, abcjs::ReadProperty(data, objectPath, propertyPath, time, expand));
+    });
+}
+
+Napi::Value AbcArchive::getUserProperties(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    const double time = optionalTime(info, 1);
+    return translate(env, [&]() -> Napi::Value {
+        return abcjs::UserPropertiesToJs(env, abcjs::ReadUserProperties(data, objectPath, time));
     });
 }
 
@@ -277,5 +365,8 @@ Napi::Function AbcArchive::GetClass(Napi::Env env)
                            InstanceMethod("getMesh", &AbcArchive::getMesh),
                            InstanceMethod("getTransform", &AbcArchive::getTransform),
                            InstanceMethod("getCamera", &AbcArchive::getCamera),
+                           InstanceMethod("getProperties", &AbcArchive::getProperties),
+                           InstanceMethod("getProperty", &AbcArchive::getProperty),
+                           InstanceMethod("getUserProperties", &AbcArchive::getUserProperties),
                        });
 }

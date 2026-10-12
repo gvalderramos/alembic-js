@@ -2,7 +2,20 @@ import * as path from 'path';
 
 import { AlembicError, wrapNativeError } from './errors';
 import { loadNative, type NativeArchive } from './native';
-import type { AbcCamera, AbcFileInfo, AbcMesh, AbcObject, AbcTransform, SampleOptions } from './types';
+import type {
+    AbcCamera,
+    AbcFileInfo,
+    AbcMesh,
+    AbcObject,
+    AbcPropertyInfo,
+    AbcTransform,
+    AbcUserProperties,
+    AbcValue,
+    MeshOptions,
+    PropertyListOptions,
+    PropertyReadOptions,
+    SampleOptions,
+} from './types';
 
 function copyObject(obj: AbcObject): AbcObject {
     return { ...obj, children: [...obj.children] };
@@ -127,12 +140,13 @@ export class AbcFile {
     }
 
     /** Triangulated geometry of a 'mesh' or 'subd' object. */
-    getMesh(objectPath: string, options: SampleOptions = {}): AbcMesh {
-        return this.call(() => this.native.getMesh(objectPath, options.time), objectPath);
+    getMesh(objectPath: string, options: MeshOptions = {}): AbcMesh {
+        const { time, attributes, layout } = options;
+        return this.call(() => this.native.getMesh(objectPath, time, { attributes, layout }), objectPath);
     }
 
     /** Geometry of every mesh/subd object in the archive. */
-    getMeshes(options: SampleOptions = {}): AbcMesh[] {
+    getMeshes(options: MeshOptions = {}): AbcMesh[] {
         return this.requireObjects()
             .filter((obj) => obj.type === 'mesh' || obj.type === 'subd')
             .map((obj) => this.getMesh(obj.path, options));
@@ -145,6 +159,42 @@ export class AbcFile {
 
     getCamera(objectPath: string, options: SampleOptions = {}): AbcCamera {
         return this.call(() => this.native.getCamera(objectPath, options.time), objectPath);
+    }
+
+    /** Lists an object's properties without reading their values. */
+    getProperties(objectPath: string, options: PropertyListOptions = {}): AbcPropertyInfo[] {
+        const { root, recursive, time } = options;
+        return this.call(() => this.native.getProperties(objectPath, root, recursive, time), objectPath, root);
+    }
+
+    /** Geometry attributes (`.arbGeomParams`) of a mesh, points or curves object. */
+    getAttributes(objectPath: string, options: SampleOptions = {}): AbcPropertyInfo[] {
+        try {
+            return this.getProperties(objectPath, { ...options, root: '.arbGeomParams' });
+        } catch (error) {
+            if (error instanceof AlembicError && error.code === 'ERR_ABC_PROPERTY_NOT_FOUND') {
+                return [];
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Reads one property, e.g. `getProperty('/geo/shape', '.arbGeomParams/Cd')`. The shortcuts
+     * `.arbGeomParams/...` and `.userProperties/...` are resolved inside the object's schema.
+     */
+    getProperty(objectPath: string, propertyPath: string, options: PropertyReadOptions = {}): AbcValue {
+        const { time, expand } = options;
+        return this.call(
+            () => this.native.getProperty(objectPath, propertyPath, time, expand),
+            objectPath,
+            propertyPath,
+        );
+    }
+
+    /** User properties as a plain object; one-element arrays (as written by Blender) are unwrapped. */
+    getUserProperties(objectPath: string, options: SampleOptions = {}): AbcUserProperties {
+        return this.call(() => this.native.getUserProperties(objectPath, options.time), objectPath);
     }
 
     private indexObjects(): void {
@@ -161,11 +211,11 @@ export class AbcFile {
         return this.objects;
     }
 
-    private call<T>(fn: () => T, objectPath?: string): T {
+    private call<T>(fn: () => T, objectPath?: string, propertyPath?: string): T {
         try {
             return fn();
         } catch (error) {
-            throw wrapNativeError(error, { file: this.path, objectPath });
+            throw wrapNativeError(error, { file: this.path, objectPath, propertyPath });
         }
     }
 }
