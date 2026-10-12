@@ -55,3 +55,11 @@ build/**/*
 # ignore yarn.lock
 yarn.lock
 bin/
+.aider*
+
+bin-test/
+build-tools/
+*.tgz
+.deps/
+dist/
+prebuilds/

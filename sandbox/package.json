@@ -1,0 +1,25 @@
+{
+  "name": "alembic-js-sandbox",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Sandbox that installs alembic-js and opens an Alembic file with three.js",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "inspect": "node src/inspect.ts",
+    "export": "node src/export-glb.ts",
+    "start": "node src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "alembic-js": "link:..",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.18",
+    "@types/three": "^0.170.0",
+    "typescript": "^5.8.3"
+  }
+}

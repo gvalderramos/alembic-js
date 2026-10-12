@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a run on main: it may be publishing a release.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  ALEMBIC_VERSION: '1.8.12'
+  IMATH_VERSION: '3.2.3'
+  CLANG_FORMAT_VERSION: '22.1.8'
+
+jobs:
+  lint:
+    name: Code style
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: ESLint + Prettier
+        run: yarn lint
+      - name: TypeScript
+        run: yarn tsc --noEmit -p tsconfig.test.json
+      - name: clang-format
+        run: |
+          pip install --quiet "clang-format==${CLANG_FORMAT_VERSION}"
+          yarn lint:cpp
+
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, node: 20 }
+          - { os: ubuntu-22.04, node: 22, prebuild: linux-x64, sandbox: true }
+          - { os: ubuntu-22.04, node: 24 }
+          - { os: windows-2022, node: 22, prebuild: win32-x64 }
+          - { os: macos-14, node: 22, prebuild: darwin-arm64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+
+      - id: alembic
+        uses: ./.github/actions/setup-alembic
+        with:
+          alembic-version: ${{ env.ALEMBIC_VERSION }}
+          imath-version: ${{ env.IMATH_VERSION }}
+
+      - run: yarn install --frozen-lockfile
+      - name: Build
+        shell: bash
+        run: |
+          yarn build:native --CDCMAKE_PREFIX_PATH="${{ steps.alembic.outputs.prefix }}"
+          yarn build:ts
+      - name: Unit tests
+        run: yarn test
+
+      - name: Sandbox smoke test
+        if: matrix.sandbox
+        working-directory: sandbox
+        run: |
+          yarn install
+          yarn typecheck
+          yarn inspect
+          yarn export
+
+      - name: Upload prebuilt addon
+        if: matrix.prebuild
+        uses: actions/upload-artifact@v7
+        with:
+          name: prebuild-${{ matrix.prebuild }}
+          path: build/alembic-js.node
+          if-no-files-found: error
+
+  release:
+    name: Package & release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # No dependency cache here: this job publishes, so it must not restore caches other branches could write.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: yarn install --frozen-lockfile
+      - run: yarn build:ts
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: prebuild-*
+          path: artifacts
+      - name: Collect prebuilt addons
+        run: |
+          for dir in artifacts/prebuild-*; do
+            target="prebuilds/${dir#artifacts/prebuild-}"
+            mkdir -p "$target"
+            cp "$dir/alembic-js.node" "$target/"
+          done
+          find prebuilds -type f
+          for target in linux-x64 win32-x64 darwin-arm64; do
+            test -f "prebuilds/$target/alembic-js.node" || { echo "Missing prebuild for $target"; exit 1; }
+          done
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+        run: npx --yes semantic-release@24
