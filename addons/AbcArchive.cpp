@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <functional>
 
 using abcjs::AbcError;
 namespace codes = abcjs::codes;
@@ -98,6 +99,41 @@ abcjs::MeshOptions meshOptions(const Napi::CallbackInfo& info, size_t index)
     return options;
 }
 
+// Parses the time and sample options ({ mode, useVelocities, velocityScale }) of a reader call.
+abcjs::SampleSpec sampleSpec(const Napi::CallbackInfo& info, size_t timeIndex, size_t optionsIndex)
+{
+    abcjs::SampleSpec spec = abcjs::SampleSpec::at(optionalTime(info, timeIndex));
+    if (info.Length() <= optionsIndex || !info[optionsIndex].IsObject()) return spec;
+    Napi::Object obj = info[optionsIndex].As<Napi::Object>();
+    Napi::Value mode = obj.Get("mode");
+    if (mode.IsString()) {
+        const std::string value = mode.As<Napi::String>().Utf8Value();
+        if (value == "near") {
+            spec.mode = abcjs::SampleSpec::Mode::Near;
+        } else if (value == "floor") {
+            spec.mode = abcjs::SampleSpec::Mode::Floor;
+        } else if (value == "interpolate") {
+            spec.mode = abcjs::SampleSpec::Mode::Interpolate;
+        } else {
+            throwCoded(info.Env(), codes::InvalidArgument, "Expected mode to be 'near', 'floor' or 'interpolate'");
+        }
+    } else if (!mode.IsUndefined() && !mode.IsNull()) {
+        throwCoded(info.Env(), codes::InvalidArgument, "Expected mode to be 'near', 'floor' or 'interpolate'");
+    }
+    Napi::Value useVelocities = obj.Get("useVelocities");
+    if (!useVelocities.IsUndefined() && !useVelocities.IsNull()) spec.useVelocities = useVelocities.ToBoolean();
+    Napi::Value scale = obj.Get("velocityScale");
+    if (scale.IsNumber()) {
+        spec.velocityScale = scale.As<Napi::Number>().DoubleValue();
+        if (!std::isfinite(spec.velocityScale)) {
+            throwCoded(info.Env(), codes::InvalidArgument, "Expected velocityScale to be a finite number");
+        }
+    } else if (!scale.IsUndefined() && !scale.IsNull()) {
+        throwCoded(info.Env(), codes::InvalidArgument, "Expected velocityScale to be a number");
+    }
+    return spec;
+}
+
 template <class TypedArrayT, class T> TypedArrayT toTypedArray(Napi::Env env, const std::vector<T>& values)
 {
     // Copy into a JS-owned buffer so no native memory escapes to JavaScript.
@@ -105,6 +141,79 @@ template <class TypedArrayT, class T> TypedArrayT toTypedArray(Napi::Env env, co
     if (!values.empty()) std::memcpy(buffer.Data(), values.data(), values.size() * sizeof(T));
     return TypedArrayT::New(env, values.size(), buffer, 0);
 }
+
+Napi::Value meshToJs(Napi::Env env, const abcjs::MeshData& mesh, bool withTopology)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("name", mesh.name);
+    out.Set("path", mesh.path);
+    out.Set("type", mesh.type);
+    out.Set("layout", mesh.layout);
+    out.Set("positions", toTypedArray<Napi::Float32Array>(env, mesh.positions));
+    if (!mesh.normals.empty()) out.Set("normals", toTypedArray<Napi::Float32Array>(env, mesh.normals));
+    if (withTopology) {
+        if (!mesh.uvs.empty()) out.Set("uvs", toTypedArray<Napi::Float32Array>(env, mesh.uvs));
+        out.Set("indices", toTypedArray<Napi::Uint32Array>(env, mesh.indices));
+        out.Set("faceCount", Napi::Number::New(env, static_cast<double>(mesh.faceCount)));
+    }
+    out.Set("transform", toArray(env, mesh.transform));
+    out.Set("sampleTime", Napi::Number::New(env, mesh.sampleTime));
+    out.Set("interpolated", Napi::Boolean::New(env, mesh.interpolated));
+    if (!mesh.attributes.empty()) {
+        Napi::Object attributes = Napi::Object::New(env);
+        for (const auto& attribute : mesh.attributes) {
+            attributes.Set(attribute.name, abcjs::MeshAttributeToJs(env, attribute));
+        }
+        out.Set("attributes", attributes);
+    }
+    return out;
+}
+
+// Runs a read on a worker thread and resolves a promise with its JS conversion.
+// It keeps the archive alive, so close() during the read is safe.
+template <class Result> class ReadWorker : public Napi::AsyncWorker {
+public:
+    using Read = std::function<Result()>;
+    using Convert = std::function<Napi::Value(Napi::Env, const Result&)>;
+
+    ReadWorker(Napi::Env env, std::shared_ptr<abcjs::ArchiveData> keepAlive, Read read, Convert convert)
+        : Napi::AsyncWorker(env), m_deferred(Napi::Promise::Deferred::New(env)), m_keepAlive(std::move(keepAlive)),
+          m_read(std::move(read)), m_convert(std::move(convert))
+    {
+    }
+
+    Napi::Promise promise() const { return m_deferred.Promise(); }
+
+    void Execute() override
+    {
+        try {
+            m_result = m_read();
+        } catch (const AbcError& e) {
+            m_code = e.code();
+            SetError(e.what());
+        } catch (const std::exception& e) {
+            m_code = codes::ReadFailed;
+            SetError(e.what());
+        }
+    }
+
+    void OnOK() override { m_deferred.Resolve(m_convert(Env(), m_result)); }
+
+    void OnError(const Napi::Error& error) override
+    {
+        Napi::Error err = Napi::Error::New(Env(), error.Message());
+        err.Set("code", Napi::String::New(Env(), m_code));
+        m_deferred.Reject(err.Value());
+    }
+
+private:
+    Napi::Promise::Deferred m_deferred;
+    std::shared_ptr<abcjs::ArchiveData> m_keepAlive;
+    Read m_read;
+    Convert m_convert;
+    Result m_result;
+    std::string m_code;
+};
 
 class OpenWorker : public Napi::AsyncWorker {
 public:
@@ -210,6 +319,7 @@ Napi::Value AbcArchive::getInfo(const Napi::CallbackInfo& info)
     out.Set("userDescription", data.userDescription);
     out.Set("objectCount", Napi::Number::New(env, static_cast<double>(data.objects.size())));
     out.Set("hasAnimation", Napi::Boolean::New(env, data.hasAnimation));
+    if (data.fps > 0.0) out.Set("fps", Napi::Number::New(env, data.fps));
     out.Set("startTime", Napi::Number::New(env, data.startTime));
     out.Set("endTime", Napi::Number::New(env, data.endTime));
     return out;
@@ -234,6 +344,19 @@ Napi::Value AbcArchive::getObjects(const Napi::CallbackInfo& info)
         obj.Set("schema", rec.schema);
         obj.Set("numSamples", Napi::Number::New(env, static_cast<double>(rec.numSamples)));
         obj.Set("animated", Napi::Boolean::New(env, rec.animated));
+        if (rec.timeSampling.valid) {
+            const auto& ts = rec.timeSampling;
+            Napi::Object sampling = Napi::Object::New(env);
+            sampling.Set("kind", ts.kind);
+            sampling.Set("startTime", Napi::Number::New(env, ts.startTime));
+            if (ts.timePerCycle > 0.0) {
+                sampling.Set("timePerCycle", Napi::Number::New(env, ts.timePerCycle));
+                if (ts.kind == "uniform") sampling.Set("fps", Napi::Number::New(env, 1.0 / ts.timePerCycle));
+            }
+            sampling.Set("sampleTimes", abcjs::ToTypedArray(env, ts.sampleTimes));
+            obj.Set("timeSampling", sampling);
+        }
+        if (!rec.topology.empty()) obj.Set("topology", rec.topology);
         result.Set(i, obj);
     }
     return result;
@@ -244,30 +367,52 @@ Napi::Value AbcArchive::getMesh(const Napi::CallbackInfo& info)
     auto env = info.Env();
     const auto& data = requireData(env);
     const std::string objectPath = requireObjectPath(info);
-    const double time = optionalTime(info, 1);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
+    const abcjs::MeshOptions options = meshOptions(info, 2);
+    return translate(
+        env, [&]() -> Napi::Value { return meshToJs(env, abcjs::ReadMesh(data, objectPath, spec, options), true); });
+}
+
+Napi::Value AbcArchive::getMeshFrame(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
     const abcjs::MeshOptions options = meshOptions(info, 2);
     return translate(env, [&]() -> Napi::Value {
-        abcjs::MeshData mesh = abcjs::ReadMesh(data, objectPath, time, options);
-        Napi::Object out = Napi::Object::New(env);
-        out.Set("name", mesh.name);
-        out.Set("path", mesh.path);
-        out.Set("type", mesh.type);
-        out.Set("layout", mesh.layout);
-        out.Set("positions", toTypedArray<Napi::Float32Array>(env, mesh.positions));
-        if (!mesh.normals.empty()) out.Set("normals", toTypedArray<Napi::Float32Array>(env, mesh.normals));
-        if (!mesh.uvs.empty()) out.Set("uvs", toTypedArray<Napi::Float32Array>(env, mesh.uvs));
-        out.Set("indices", toTypedArray<Napi::Uint32Array>(env, mesh.indices));
-        out.Set("faceCount", Napi::Number::New(env, static_cast<double>(mesh.faceCount)));
-        out.Set("transform", toArray(env, mesh.transform));
-        if (!mesh.attributes.empty()) {
-            Napi::Object attributes = Napi::Object::New(env);
-            for (const auto& attribute : mesh.attributes) {
-                attributes.Set(attribute.name, abcjs::MeshAttributeToJs(env, attribute));
-            }
-            out.Set("attributes", attributes);
-        }
-        return out;
+        return meshToJs(env, abcjs::ReadMeshFrame(data, objectPath, spec, options), false);
     });
+}
+
+Napi::Value AbcArchive::queueMeshRead(const Napi::CallbackInfo& info, bool withTopology)
+{
+    auto env = info.Env();
+    requireData(env);
+    std::shared_ptr<abcjs::ArchiveData> data = m_data;
+    const std::string objectPath = requireObjectPath(info);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
+    const abcjs::MeshOptions options = meshOptions(info, 2);
+    auto* worker = new ReadWorker<abcjs::MeshData>(
+        env, data,
+        [data, objectPath, spec, options, withTopology] {
+            return withTopology ? abcjs::ReadMesh(*data, objectPath, spec, options)
+                                : abcjs::ReadMeshFrame(*data, objectPath, spec, options);
+        },
+        [withTopology](Napi::Env e, const abcjs::MeshData& mesh) { return meshToJs(e, mesh, withTopology); });
+    auto promise = worker->promise();
+    worker->Queue();
+    return promise;
+}
+
+Napi::Value AbcArchive::getMeshAsync(const Napi::CallbackInfo& info)
+{
+    return queueMeshRead(info, true);
+}
+
+Napi::Value AbcArchive::getMeshFrameAsync(const Napi::CallbackInfo& info)
+{
+    return queueMeshRead(info, false);
 }
 
 Napi::Value AbcArchive::getPoints(const Napi::CallbackInfo& info)
@@ -275,9 +420,9 @@ Napi::Value AbcArchive::getPoints(const Napi::CallbackInfo& info)
     auto env = info.Env();
     const auto& data = requireData(env);
     const std::string objectPath = requireObjectPath(info);
-    const double time = optionalTime(info, 1);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
     return translate(env, [&]() -> Napi::Value {
-        abcjs::PointsData points = abcjs::ReadPoints(data, objectPath, time);
+        abcjs::PointsData points = abcjs::ReadPoints(data, objectPath, spec);
         Napi::Object out = Napi::Object::New(env);
         out.Set("name", points.name);
         out.Set("path", points.path);
@@ -300,9 +445,9 @@ Napi::Value AbcArchive::getCurves(const Napi::CallbackInfo& info)
     auto env = info.Env();
     const auto& data = requireData(env);
     const std::string objectPath = requireObjectPath(info);
-    const double time = optionalTime(info, 1);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
     return translate(env, [&]() -> Napi::Value {
-        abcjs::CurvesData curves = abcjs::ReadCurves(data, objectPath, time);
+        abcjs::CurvesData curves = abcjs::ReadCurves(data, objectPath, spec);
         Napi::Object out = Napi::Object::New(env);
         out.Set("name", curves.name);
         out.Set("path", curves.path);
@@ -374,9 +519,9 @@ Napi::Value AbcArchive::getTransform(const Napi::CallbackInfo& info)
     auto env = info.Env();
     const auto& data = requireData(env);
     const std::string objectPath = requireObjectPath(info);
-    const double time = optionalTime(info, 1);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
     return translate(env, [&]() -> Napi::Value {
-        abcjs::TransformData xf = abcjs::ReadTransform(data, objectPath, time);
+        abcjs::TransformData xf = abcjs::ReadTransform(data, objectPath, spec);
         Napi::Object out = Napi::Object::New(env);
         out.Set("path", xf.path);
         out.Set("local", toArray(env, xf.local));
@@ -392,9 +537,9 @@ Napi::Value AbcArchive::getCamera(const Napi::CallbackInfo& info)
     auto env = info.Env();
     const auto& data = requireData(env);
     const std::string objectPath = requireObjectPath(info);
-    const double time = optionalTime(info, 1);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
     return translate(env, [&]() -> Napi::Value {
-        abcjs::CameraData cam = abcjs::ReadCamera(data, objectPath, time);
+        abcjs::CameraData cam = abcjs::ReadCamera(data, objectPath, spec);
         Napi::Object out = Napi::Object::New(env);
         out.Set("name", cam.name);
         out.Set("path", cam.path);
@@ -421,6 +566,9 @@ Napi::Function AbcArchive::GetClass(Napi::Env env)
                            InstanceMethod("getInfo", &AbcArchive::getInfo),
                            InstanceMethod("getObjects", &AbcArchive::getObjects),
                            InstanceMethod("getMesh", &AbcArchive::getMesh),
+                           InstanceMethod("getMeshFrame", &AbcArchive::getMeshFrame),
+                           InstanceMethod("getMeshAsync", &AbcArchive::getMeshAsync),
+                           InstanceMethod("getMeshFrameAsync", &AbcArchive::getMeshFrameAsync),
                            InstanceMethod("getTransform", &AbcArchive::getTransform),
                            InstanceMethod("getCamera", &AbcArchive::getCamera),
                            InstanceMethod("getPoints", &AbcArchive::getPoints),

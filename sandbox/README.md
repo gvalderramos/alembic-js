@@ -19,6 +19,7 @@ Each script takes an optional path to another `.abc` file, for example `yarn sta
 
 - `src/scene.ts` opens the archive with `AbcFile` and builds a `THREE.Group` with `buildThreeScene()`.
 - `src/server.ts` runs that in Node, exports the scene to GLB with `GLTFExporter`, and serves `public/index.html`. The page loads the GLB with `GLTFLoader`.
+- For animated files the page shows a timeline. The server plays the scene with `AbcPlayer` and serves `/frame?time=` (updated transforms and geometry as base64 arrays), and the page applies each frame to the GLB scene.
 
 ## Why the viewer uses GLB
 

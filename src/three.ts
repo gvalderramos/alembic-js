@@ -215,9 +215,18 @@ function applyMatrix(object: any, matrix: Matrix4Array, THREE: ThreeModule): voi
  * Other object types become empty Groups so the hierarchy is preserved.
  */
 export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: ThreeSceneOptions = {}): any {
-    const sample = { time: options.time };
+    const { time, frame, mode, useVelocities, velocityScale } = options;
+    const sample = { time, frame, mode, useVelocities, velocityScale };
     const root = new THREE.Group();
     root.name = file.path;
+    // Remembered so AbcPlayer reads frames with the same layout options.
+    root.userData.alembicSceneOptions = {
+        attributes: options.attributes,
+        computeNormals: options.computeNormals,
+        attributeNames: options.attributeNames,
+        colorSpace: options.colorSpace,
+        segmentsPerSpan: options.segmentsPerSpan,
+    };
 
     const build = (obj: AbcObject): any => {
         let node: any;

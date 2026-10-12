@@ -7,6 +7,7 @@ import type {
     AbcCurves,
     AbcFileInfo,
     AbcMesh,
+    AbcMeshFrame,
     AbcObject,
     AbcPoints,
     AbcPropertyInfo,
@@ -14,6 +15,17 @@ import type {
     AbcUserProperties,
     AbcValue,
 } from './types';
+
+export interface NativeSampleOptions {
+    mode?: 'near' | 'floor' | 'interpolate';
+    useVelocities?: boolean;
+    velocityScale?: number;
+}
+
+export interface NativeMeshOptions extends NativeSampleOptions {
+    attributes?: string[] | '*';
+    layout?: string;
+}
 
 /** Shape of the C++ `AbcArchive` class (addons/AbcArchive.cpp). */
 export interface NativeArchive {
@@ -23,14 +35,17 @@ export interface NativeArchive {
     close(): void;
     getInfo(): AbcFileInfo;
     getObjects(): AbcObject[];
-    getMesh(objectPath: string, time?: number, options?: { attributes?: string[] | '*'; layout?: string }): AbcMesh;
-    getPoints(objectPath: string, time?: number): AbcPoints;
-    getCurves(objectPath: string, time?: number): AbcCurves;
+    getMesh(objectPath: string, time?: number, options?: NativeMeshOptions): AbcMesh;
+    getMeshFrame(objectPath: string, time?: number, options?: NativeMeshOptions): AbcMeshFrame;
+    getMeshAsync(objectPath: string, time?: number, options?: NativeMeshOptions): Promise<AbcMesh>;
+    getMeshFrameAsync(objectPath: string, time?: number, options?: NativeMeshOptions): Promise<AbcMeshFrame>;
+    getPoints(objectPath: string, time?: number, options?: NativeSampleOptions): AbcPoints;
+    getCurves(objectPath: string, time?: number, options?: NativeSampleOptions): AbcCurves;
     getProperties(objectPath: string, root?: string, recursive?: boolean, time?: number): AbcPropertyInfo[];
     getProperty(objectPath: string, propertyPath: string, time?: number, expand?: boolean): AbcValue;
     getUserProperties(objectPath: string, time?: number): AbcUserProperties;
-    getTransform(objectPath: string, time?: number): AbcTransform;
-    getCamera(objectPath: string, time?: number): AbcCamera;
+    getTransform(objectPath: string, time?: number, options?: NativeSampleOptions): AbcTransform;
+    getCamera(objectPath: string, time?: number, options?: NativeSampleOptions): AbcCamera;
 }
 
 interface NativeModule {

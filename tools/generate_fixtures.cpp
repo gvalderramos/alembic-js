@@ -311,6 +311,97 @@ void pointsAndCurves(const std::filesystem::path& dir)
                 AbcG::OFloatGeomParam::Sample());
 }
 
+// Animation (spec 0004). Frames are at 24 fps starting at 1/24 s unless noted.
+// /spin                 xform: rotate 0, 90, 180 degrees about Y and translate x = 0, 1, 2 (3 frames)
+// /wave/waveShape       4x4 grid, constant topology; point i has y = (frame - 1) * (i % 4) * 0.1 (3 frames)
+// /sim/simShape         changing topology: frame f has f quads in a row; velocity (0, 1, 0) per point (3 frames)
+// /particles            ids {0, 1} on frame 1, {0, 1, 2} on frame 2; x = id, y = frame - 1; velocity (0, 24, 0)
+// /acyclic              xform at acyclic times 0, 0.1, 0.35 with x = 0, 1, 2
+// /thirty               xform at 30 fps (2 samples from 1/30 s) with x = 0, 10
+void animation(const std::filesystem::path& dir)
+{
+    namespace AbcA = Alembic::AbcCoreAbstract;
+    Abc::OArchive archive = createArchive(dir / "animation.abc");
+    Abc::OObject top = archive.getTop();
+    const uint32_t fps24 = archive.addTimeSampling(AbcA::TimeSampling(1.0 / 24.0, 1.0 / 24.0));
+    const uint32_t fps30 = archive.addTimeSampling(AbcA::TimeSampling(1.0 / 30.0, 1.0 / 30.0));
+    const std::vector<double> acyclicTimes = {0.0, 0.1, 0.35};
+    const uint32_t acyclic = archive.addTimeSampling(
+        AbcA::TimeSampling(AbcA::TimeSamplingType(AbcA::TimeSamplingType::kAcyclic), acyclicTimes));
+
+    AbcG::OXform spin(top, "spin", fps24);
+    for (int f = 0; f < 3; ++f) {
+        AbcG::XformSample sample;
+        sample.setTranslation(Imath::V3d(f, 0, 0));
+        sample.setRotation(Imath::V3d(0, 1, 0), 90.0 * f);
+        spin.getSchema().set(sample);
+    }
+
+    AbcG::OXform wave = writeXform(top, "wave", {0, 0, 0});
+    AbcG::OPolyMesh waveShape(wave, "waveShape", fps24);
+    std::vector<int32_t> gridIndices, gridCounts;
+    for (int j = 0; j < 3; ++j) {
+        for (int i = 0; i < 3; ++i) {
+            const int a = j * 4 + i;
+            gridIndices.insert(gridIndices.end(), {a, a + 4, a + 5, a + 1}); // clockwise from +Y
+            gridCounts.push_back(4);
+        }
+    }
+    for (int f = 0; f < 3; ++f) {
+        std::vector<Imath::V3f> P;
+        for (int i = 0; i < 16; ++i)
+            P.push_back(Imath::V3f(i % 4, f * (i % 4) * 0.1f, i / 4));
+        waveShape.getSchema().set(AbcG::OPolyMeshSchema::Sample(
+            AbcG::P3fArraySample(P), Abc::Int32ArraySample(gridIndices), Abc::Int32ArraySample(gridCounts)));
+    }
+
+    AbcG::OXform sim = writeXform(top, "sim", {0, 0, 0});
+    AbcG::OPolyMesh simShape(sim, "simShape", fps24);
+    for (int f = 1; f <= 3; ++f) {
+        std::vector<Imath::V3f> P;
+        for (int i = 0; i <= f; ++i) {
+            P.push_back(Imath::V3f(i, 0, 0));
+            P.push_back(Imath::V3f(i, 0, 1));
+        }
+        std::vector<int32_t> indices, counts;
+        for (int q = 0; q < f; ++q) {
+            indices.insert(indices.end(), {2 * q, 2 * q + 1, 2 * q + 3, 2 * q + 2});
+            counts.push_back(4);
+        }
+        const std::vector<Imath::V3f> velocities(P.size(), Imath::V3f(0, 1, 0));
+        AbcG::OPolyMeshSchema::Sample sample{AbcG::P3fArraySample(P), Abc::Int32ArraySample(indices),
+                                             Abc::Int32ArraySample(counts)};
+        sample.setVelocities(Abc::V3fArraySample(velocities));
+        simShape.getSchema().set(sample);
+    }
+
+    AbcG::OPoints particles(top, "particles", fps24);
+    for (int f = 1; f <= 2; ++f) {
+        std::vector<uint64_t> ids;
+        std::vector<Imath::V3f> P, velocities;
+        for (int id = 0; id <= f; ++id) {
+            ids.push_back(id);
+            P.push_back(Imath::V3f(id, f - 1, 0));
+            velocities.push_back(Imath::V3f(0, 24, 0));
+        }
+        particles.getSchema().set(AbcG::OPointsSchema::Sample(AbcG::P3fArraySample(P), Abc::UInt64ArraySample(ids),
+                                                              Abc::V3fArraySample(velocities)));
+    }
+
+    AbcG::OXform acyclicXform(top, "acyclic", acyclic);
+    AbcG::OXform thirty(top, "thirty", fps30);
+    for (int i = 0; i < 3; ++i) {
+        AbcG::XformSample sample;
+        sample.setTranslation(Imath::V3d(i, 0, 0));
+        acyclicXform.getSchema().set(sample);
+    }
+    for (int i = 0; i < 2; ++i) {
+        AbcG::XformSample sample;
+        sample.setTranslation(Imath::V3d(i * 10, 0, 0));
+        thirty.getSchema().set(sample);
+    }
+}
+
 int main(int argc, char** argv)
 {
     const std::filesystem::path dir = argc > 1 ? argv[1] : "test/fixtures";
@@ -322,6 +413,7 @@ int main(int argc, char** argv)
         unsupportedTypes(dir);
         attributes(dir);
         pointsAndCurves(dir);
+        animation(dir);
     } catch (const std::exception& e) {
         std::cerr << "Failed to write fixtures: " << e.what() << std::endl;
         return 1;

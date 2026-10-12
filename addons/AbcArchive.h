@@ -29,6 +29,10 @@ private:
     Napi::Value getInfo(const Napi::CallbackInfo& info);
     Napi::Value getObjects(const Napi::CallbackInfo& info);
     Napi::Value getMesh(const Napi::CallbackInfo& info);
+    Napi::Value getMeshFrame(const Napi::CallbackInfo& info);
+    Napi::Value getMeshAsync(const Napi::CallbackInfo& info);
+    Napi::Value getMeshFrameAsync(const Napi::CallbackInfo& info);
+    Napi::Value queueMeshRead(const Napi::CallbackInfo& info, bool withTopology);
     Napi::Value getPoints(const Napi::CallbackInfo& info);
     Napi::Value getCurves(const Napi::CallbackInfo& info);
     Napi::Value getProperties(const Napi::CallbackInfo& info);

@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -29,6 +30,7 @@ constexpr const char* UnsupportedType = "ERR_ABC_UNSUPPORTED_TYPE";
 constexpr const char* MalformedData = "ERR_ABC_MALFORMED_DATA";
 constexpr const char* ReadFailed = "ERR_ABC_READ_FAILED";
 constexpr const char* PropertyNotFound = "ERR_ABC_PROPERTY_NOT_FOUND";
+constexpr const char* TopologyChanged = "ERR_ABC_TOPOLOGY_CHANGED";
 } // namespace codes
 
 class AbcError : public std::runtime_error {
@@ -42,6 +44,43 @@ private:
 
 using Matrix = std::array<double, 16>;
 
+// Time sampling of an object's schema (spec 0004).
+struct TimeSamplingInfo {
+    bool valid = false;
+    std::string kind; // uniform | cyclic | acyclic
+    double startTime = 0.0;
+    double timePerCycle = 0.0; // seconds per sample for uniform sampling
+    std::vector<double> sampleTimes;
+};
+
+// Which sample(s) a read uses (spec 0004).
+struct SampleSpec {
+    enum class Mode { Near, Floor, Interpolate };
+    double time = 0.0;
+    Mode mode = Mode::Near;
+    bool useVelocities = false; // move positions from the chosen sample to `time` with velocities
+    double velocityScale = 1.0; // multiplier for velocities (e.g. 1/fps for per-frame velocities)
+
+    static SampleSpec at(double t)
+    {
+        SampleSpec spec;
+        spec.time = t;
+        return spec;
+    }
+};
+
+// Sample indices resolved for a schema: blend i0 -> i1 by alpha; t0 is the time of i0.
+struct SampleSpan {
+    int64_t i0 = 0;
+    int64_t i1 = 0;
+    double alpha = 0.0;
+    double t0 = 0.0;
+    bool blends() const { return i1 != i0 && alpha > 0.0; }
+};
+
+SampleSpan SelectSamples(const Alembic::AbcCoreAbstract::TimeSamplingPtr& ts, size_t numSamples,
+                         const SampleSpec& spec);
+
 struct ObjectRecord {
     std::string name;
     std::string path;
@@ -51,6 +90,16 @@ struct ObjectRecord {
     std::string schema; // raw Alembic schema name, e.g. "AbcGeom_PolyMesh_v1"
     size_t numSamples = 0;
     bool animated = false;
+    TimeSamplingInfo timeSampling;
+    std::string topology; // constant | homogeneous | heterogeneous (geometry only)
+};
+
+// Topology fingerprint of a mesh layout, reused by per-frame reads (spec 0004).
+struct MeshTopologyCache {
+    std::string faceIndicesDigest;
+    std::string faceCountsDigest;
+    std::string layout;
+    size_t vertexCount = 0;
 };
 
 struct ArchiveData {
@@ -65,11 +114,16 @@ struct ArchiveData {
     std::string userDescription;
     double startTime = 0.0;
     double endTime = 0.0;
+    double fps = 0.0; // most common uniform rate among animated objects (0 if unknown)
     bool hasAnimation = false;
     std::vector<ObjectRecord> objects; // depth-first order, root excluded
     std::unordered_map<std::string, size_t> index;
 
     const ObjectRecord* find(const std::string& objectPath) const;
+
+    // Mesh topology fingerprints, keyed by "path|layout options". Guarded for async reads.
+    mutable std::mutex cacheMutex;
+    mutable std::unordered_map<std::string, MeshTopologyCache> topologyCache;
 };
 
 // A geometry attribute (.arbGeomParams) laid out like the mesh positions (spec 0006).
@@ -106,6 +160,8 @@ struct MeshData {
     size_t faceCount = 0;
     Matrix transform{}; // world matrix of the mesh
     std::vector<MeshAttribute> attributes;
+    double sampleTime = 0.0; // time of the (first) sample used
+    bool interpolated = false;
 };
 
 // Points / particles (spec 0002).
@@ -168,16 +224,20 @@ std::shared_ptr<ArchiveData> OpenArchive(const std::string& path);
 // Resolves an object path such as "/a/b" to its IObject. Throws AbcError.
 Alembic::Abc::IObject ResolveObject(const ArchiveData& data, const std::string& objectPath);
 
-// Accumulated world matrix of an object at a sample.
-Matrix WorldMatrix(Alembic::Abc::IObject obj, const Alembic::Abc::ISampleSelector& sel);
+// Accumulated world matrix of an object (each xform sampled with its own time sampling).
+Matrix WorldMatrix(Alembic::Abc::IObject obj, const SampleSpec& spec);
 
-// Readers. All throw AbcError. `time` is in seconds.
-MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, double time,
+// Readers. All throw AbcError. Times are in seconds.
+MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec,
                   const MeshOptions& options = MeshOptions());
-TransformData ReadTransform(const ArchiveData& data, const std::string& objectPath, double time);
-CameraData ReadCamera(const ArchiveData& data, const std::string& objectPath, double time);
-PointsData ReadPoints(const ArchiveData& data, const std::string& objectPath, double time);
-CurvesData ReadCurves(const ArchiveData& data, const std::string& objectPath, double time);
+// Same vertex layout as ReadMesh but without topology (indices). Throws TopologyChanged when the
+// topology differs from the last ReadMesh/ReadMeshFrame of this object with the same options.
+MeshData ReadMeshFrame(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec,
+                       const MeshOptions& options = MeshOptions());
+TransformData ReadTransform(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec);
+CameraData ReadCamera(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec);
+PointsData ReadPoints(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec);
+CurvesData ReadCurves(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec);
 
 } // namespace abcjs
 

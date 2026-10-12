@@ -25,6 +25,10 @@ export interface AbcFileInfo {
     objectCount: number;
     /** True when at least one object has varying samples. */
     hasAnimation: boolean;
+    /** Most common frame rate among animated objects with uniform sampling. */
+    fps?: number;
+    /** startTime/endTime in frames, when fps is known. */
+    frameRange?: { start: number; end: number };
     /** Start/end time of the archive in seconds (0 when the file has no time information). */
     startTime: number;
     endTime: number;
@@ -45,6 +49,10 @@ export interface AbcObject {
     numSamples: number;
     /** True when the object's samples change over time. */
     animated: boolean;
+    /** Time sampling of the object's schema; undefined for objects without samples. */
+    timeSampling?: AbcTimeSampling;
+    /** Whether the topology changes over time (meshes, subds, points, curves). */
+    topology?: 'constant' | 'homogeneous' | 'heterogeneous';
 }
 
 /**
@@ -73,8 +81,28 @@ export interface AbcMesh {
      * normals, UVs or requested attributes are stored per face corner or per face.
      */
     layout: 'points' | 'corners';
+    /** Time of the sample that was read (the first one when interpolating). */
+    sampleTime: number;
+    /** True when positions were interpolated between two samples. */
+    interpolated: boolean;
     /** Requested `.arbGeomParams`, laid out like `positions` (see MeshOptions.attributes). */
     attributes?: Record<string, AbcMeshAttribute>;
+}
+
+/**
+ * Positions (and normals) of a mesh at a time, in the vertex layout of the last getMesh() with the
+ * same options. Used to update a geometry in place without re-reading the topology (spec 0004).
+ */
+export interface AbcMeshFrame {
+    name: string;
+    path: string;
+    layout: 'points' | 'corners';
+    positions: Float32Array;
+    normals?: Float32Array;
+    attributes?: Record<string, AbcMeshAttribute>;
+    transform: Matrix4Array;
+    sampleTime: number;
+    interpolated: boolean;
 }
 
 /** A geometry attribute laid out like the mesh positions. */
@@ -278,4 +306,31 @@ export interface AbcCamera {
 export interface SampleOptions {
     /** Time in seconds. Defaults to 0 (the first sample). */
     time?: number;
+    /** Frame number, converted to `frame / fps` with the archive frame rate. Use instead of `time`. */
+    frame?: number;
+    /**
+     * Which sample(s) to read (spec 0004):
+     * - 'near' (default): the closest sample;
+     * - 'floor': the last sample at or before `time`;
+     * - 'interpolate': blend the samples around `time` (transforms are decomposed and slerped;
+     *   positions are interpolated when the topology matches, otherwise 'floor' is used).
+     */
+    mode?: 'near' | 'floor' | 'interpolate';
+    /** Move positions from the chosen sample to `time` with velocities (points, curves, changing meshes). */
+    useVelocities?: boolean;
+    /** Multiplier for velocities. Alembic velocities are units per second; use 1 / fps for per-frame velocities. */
+    velocityScale?: number;
+}
+
+/** How an object's samples are spread over time (spec 0004). */
+export interface AbcTimeSampling {
+    kind: 'uniform' | 'cyclic' | 'acyclic';
+    /** Time of the first sample, in seconds. */
+    startTime: number;
+    /** Seconds per sample (uniform) or per cycle (cyclic). */
+    timePerCycle?: number;
+    /** Samples per second, for uniform sampling. */
+    fps?: number;
+    /** Time of every sample, in seconds. */
+    sampleTimes: Float64Array;
 }
