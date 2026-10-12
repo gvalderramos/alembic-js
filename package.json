@@ -37,7 +37,7 @@
     "globals": "^15",
     "node-addon-api": "^8.3.1",
     "prettier": "^3",
-    "three": "^0.170.0",
+    "three": "^0.186.1",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8"
   },
