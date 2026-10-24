@@ -14,13 +14,26 @@ export function resolveAbcPath(arg: string | undefined): string {
     return arg ? path.resolve(arg) : DEFAULT_ABC;
 }
 
+/** `[file.abc] [--triangle-to-face]`: the .abc path, the shared flag, and the other arguments. */
+export function parseArgs(args: string[]): { abcPath: string; triangleToFace: boolean; rest: string[] } {
+    const rest = args.filter((arg) => arg !== '--triangle-to-face');
+    return { abcPath: resolveAbcPath(rest[0]), triangleToFace: rest.length !== args.length, rest: rest.slice(1) };
+}
+
 export interface LoadedScene {
     file: AbcFile;
     root: THREE.Group;
     box: THREE.Box3;
 }
 
-export function loadScene(abcPath: string, time = 0): LoadedScene {
+export interface LoadOptions {
+    /** Time the scene is built at; streamed frames are relative to it (encodeFrames' referenceTime). Default 0. */
+    time?: number;
+    /** Keep each mesh's triangleToFace in userData.alembic, and so in the GLB. Default false. */
+    triangleToFace?: boolean;
+}
+
+export function loadScene(abcPath: string, { time = 0, triangleToFace = false }: LoadOptions = {}): LoadedScene {
     const file = AbcFile.open(abcPath);
     const brass = new THREE.MeshStandardMaterial({ color: 0xc8a165, metalness: 0.6, roughness: 0.35 });
     // Face sets get one material each: the AbcMaterial's base color when assigned, else a palette color.
@@ -28,6 +41,7 @@ export function loadScene(abcPath: string, time = 0): LoadedScene {
     let slotIndex = 0;
     const root = buildThreeScene(file, THREE, {
         time,
+        triangleToFace,
         onError: (error, object) => console.warn(`Skipping ${object.path}: ${(error as Error).message}`),
         createMaterial: ({ material }) => {
             const params = material?.parameters['*.surface'] ?? Object.values(material?.parameters ?? {})[0];
@@ -74,6 +88,8 @@ class NodeFileReader {
 }
 (globalThis as Record<string, unknown>).FileReader ??= NodeFileReader;
 
+// GLTFExporter writes userData as glTF extras, so userData.alembic.path (and triangleToFace, when
+// requested) reaches the browser, where applyFrame() finds objects by path.
 export async function toGlb(root: THREE.Object3D): Promise<Buffer> {
     // Cameras from the .abc are kept in the hierarchy but not exported; the viewer frames the model itself.
     const result = await new GLTFExporter().parseAsync(root, { binary: true, onlyVisible: false });
