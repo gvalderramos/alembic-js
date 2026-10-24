@@ -227,6 +227,7 @@ yarn fixtures
 - [x] Attributes and properties: vertex colors, custom attributes, user properties ([spec](specs/0006-attributes-and-properties.md))
 - [ ] Test assets: real-world files for every feature ([spec](specs/0007-test-assets.md), [catalog](resource/README.md))
 - [ ] Alembic instancing (found while building the test assets; see spec 0007)
+- [ ] Streaming frames to the browser: binary frame format and a browser decoder ([spec](specs/0008-frame-streaming.md))
 
 ---
 
