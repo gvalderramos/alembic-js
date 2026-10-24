@@ -19,7 +19,8 @@ Each script takes an optional path to another `.abc` file, for example `yarn sta
 
 - `src/scene.ts` opens the archive with `AbcFile` and builds a `THREE.Group` with `buildThreeScene()`.
 - `src/server.ts` runs that in Node, exports the scene to GLB with `GLTFExporter`, and serves `public/index.html`. The page loads the GLB with `GLTFLoader`.
-- For animated files the page shows a timeline. The server plays the scene with `AbcPlayer` and serves `/frame?time=` (updated transforms and geometry as base64 arrays), and the page applies each frame to the GLB scene.
+- For animated files the page shows a timeline. The server encodes frames with `encodeFrames()` and serves them in the binary frame format from `/frames?from=&step=&count=`, gzipped (spec 0008). The page loads `alembic-js/stream` through its import map, keeps the next 48 frames loaded in chunks of 12, and applies each frame to the GLB scene with `applyFrame()`. Playback waits while a frame is still loading instead of skipping it.
+- `--triangle-to-face` (for `yarn start` and `yarn export`) keeps each mesh's `triangleToFace` in the GLB, under `userData.alembic`.
 
 ## Why the viewer uses GLB
 
