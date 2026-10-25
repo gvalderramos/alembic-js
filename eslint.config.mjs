@@ -12,7 +12,7 @@ export default tseslint.config(
     },
     {
         // three.js is injected by the caller and intentionally untyped.
-        files: ['src/three.ts', 'src/animation.ts'],
+        files: ['src/three.ts', 'src/animation.ts', 'src/stream/apply.ts'],
         rules: { '@typescript-eslint/no-explicit-any': 'off' },
     },
     {

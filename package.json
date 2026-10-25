@@ -11,8 +11,28 @@
   "packageManager": "yarn@1.22.22",
   "main": "bin/index.js",
   "types": "bin/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./bin/index.d.ts",
+      "default": "./bin/index.js"
+    },
+    "./stream": {
+      "types": "./bin/stream/index.d.ts",
+      "import": "./bin/stream.mjs",
+      "default": "./bin/stream/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "stream": [
+        "bin/stream/index.d.ts"
+      ]
+    }
+  },
   "files": [
     "bin/**/*.js",
+    "bin/**/*.mjs",
     "bin/**/*.d.ts",
     "build/alembic-js.node",
     "build/*.dll",
@@ -33,6 +53,7 @@
     "@types/node": "^22.15.18",
     "@types/three": "^0.170.0",
     "cmake-js": "^7.3.1",
+    "esbuild": "0.25.11",
     "eslint": "^9",
     "globals": "^15",
     "node-addon-api": "^8.3.1",
@@ -44,14 +65,14 @@
   "scripts": {
     "build": "yarn build:native && yarn build:ts",
     "build:native": "cmake-js compile",
-    "build:ts": "tsc",
-    "rebuild": "cmake-js rebuild && tsc",
+    "build:ts": "tsc && node scripts/build-stream.js",
+    "rebuild": "cmake-js rebuild && yarn build:ts",
     "fixtures": "cmake-js compile --out build-tools --target generate_fixtures --CDALEMBIC_JS_BUILD_TOOLS=ON && node scripts/generate-fixtures.js",
     "test": "node -e \"require('fs').rmSync('bin-test',{recursive:true,force:true})\" && tsc -p tsconfig.test.json && node scripts/run-tests.js",
     "lint": "eslint . && prettier --check \"{src,test,scripts,sandbox/src,sandbox/public}/**/*.{ts,js,html}\"",
     "format": "prettier --write \"{src,test,scripts,sandbox/src,sandbox/public}/**/*.{ts,js,html}\" && clang-format -i addons/*.cpp addons/*.h tools/*.cpp",
     "lint:cpp": "clang-format --dry-run --Werror addons/*.cpp addons/*.h tools/*.cpp",
-    "prepack": "tsc",
+    "prepack": "yarn build:ts",
     "assets:blender": "node scripts/make-blender-assets.js",
     "install": "node scripts/install.js",
     "build:sdk": "bash scripts/ci/build-alembic.sh .deps/alembic-sdk 3.2.3 1.8.12",

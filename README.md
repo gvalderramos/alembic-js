@@ -55,7 +55,7 @@ const geometry = toBufferGeometry(file.getMesh('/geo/shape'), THREE);
 
 A runnable example lives in [`sandbox/`](sandbox/README.md). It includes a CLI inspector, a GLB exporter and a browser viewer.
 
-alembic-js is a native addon, so it runs in Node, Electron, or another process with Node integration, but not in a plain browser page. To show Alembic data in a browser, read it in Node and send it to the page. The sandbox converts the scene to GLB for this; [its README](sandbox/README.md#why-the-viewer-uses-glb) explains why and lists the alternatives.
+alembic-js is a native addon, so it runs in Node, Electron, or another process with Node integration, but not in a plain browser page. To show Alembic data in a browser, read it in Node and send it to the page. The sandbox converts the scene to GLB for this ([its README](sandbox/README.md#why-the-viewer-uses-glb) explains why and lists the alternatives) and streams the animation with [`alembic-js/stream`](#streaming-frames-to-the-browser).
 
 ### Errors
 
@@ -146,6 +146,30 @@ file.getPoints(path, { time: 0.51, mode: 'floor', useVelocities: true }); // mov
 
 Colors are assumed to be linear; pass `colorSpace: 'srgb'` to convert.
 
+### Streaming frames to the browser
+alembic-js runs in Node, so a browser viewer gets the scene once as GLB and then streams the animation in a compact binary format ([spec 0008](specs/0008-frame-streaming.md)). The [sandbox](sandbox/) is the reference implementation.
+
+```ts
+// Node (server)
+import { AbcFile, buildThreeScene, encodeFrames } from 'alembic-js';
+const root = buildThreeScene(file, THREE);              // export it with GLTFExporter, send once
+const packet = await encodeFrames(file, [0, 1 / 24, 2 / 24]); // ArrayBuffer, send per batch of frames
+
+// Browser: no native code, no Node built-ins
+import { applyFrame, decodeFrames } from 'alembic-js/stream';
+const gltf = await new GLTFLoader().loadAsync('/scene.glb');
+const frames = decodeFrames(await (await fetch('/frames?...')).arrayBuffer());
+applyFrame(gltf.scene, frames[0]);
+```
+
+- `encodeFrames(file, times, { paths, normals, mode, attributes, triangleToFace, referenceTime })` samples every animated xform, mesh, subd and camera by default. Each object becomes one record per frame: `transform` (local matrix), `deform` (positions and normals in the scene's vertex layout, read with `getMeshFrame()`), `mesh` (full geometry, when the topology differs from the scene's) or `camera` (fov, near, far). Pass the `attributes` the scene was built with, so the vertex layouts match, and `referenceTime` if it wasn't built at time 0.
+- `decodeFrames(buffer)` returns `{ time, objects: Map<path, record> }[]`. Arrays are typed-array views into the buffer, not copies.
+- `applyFrame(root, frame)` finds objects by `userData.alembic.path` (`buildThreeScene()` sets it, and GLTFExporter keeps it in the GLB), updates attributes in place, swaps in a new geometry for `mesh` records and goes back to the original geometry on the next `deform` record. It also handles the per-material meshes GLTFLoader creates for meshes with face sets.
+- `buildThreeScene(file, THREE, { triangleToFace: true })` stores each mesh's `triangleToFace` in `userData.alembic` as a plain array, so it survives the GLB export; `getTriangleToFace(node)` returns it as a `Uint32Array`.
+- `writeFrames(frames)` writes records you build yourself. Compression is left to HTTP (gzip/brotli).
+
+Wire format, little-endian: `'ABCF'`, version u16, frame count u16; per frame: time f64, record count u32; per record: path length u16, UTF-8 path, kind u8, payload length u32, zero padding to a multiple of 4, payload. Payloads are raw `Float32Array`/`Uint32Array` data; see [the spec](specs/0008-frame-streaming.md#payloads) for each kind.
+
 ---
 
 ## 💻 Supported platforms
@@ -227,7 +251,7 @@ yarn fixtures
 - [x] Attributes and properties: vertex colors, custom attributes, user properties ([spec](specs/0006-attributes-and-properties.md))
 - [ ] Test assets: real-world files for every feature ([spec](specs/0007-test-assets.md), [catalog](resource/README.md))
 - [ ] Alembic instancing (found while building the test assets; see spec 0007)
-- [ ] Streaming frames to the browser: binary frame format and a browser decoder ([spec](specs/0008-frame-streaming.md))
+- [x] Streaming frames to the browser: binary frame format and a browser decoder ([spec](specs/0008-frame-streaming.md))
 
 ---
 

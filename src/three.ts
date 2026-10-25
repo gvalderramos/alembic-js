@@ -65,6 +65,11 @@ export interface ThreeSceneOptions extends SampleOptions, GeometryOptions {
     /** Points evaluated per span of cubic/NURBS curves. Default 8. */
     segmentsPerSpan?: number;
     /**
+     * Store the source polygon of every triangle in `userData.alembic.triangleToFace` of each mesh
+     * (a plain array, so GLTFExporter keeps it in the GLB). Default false.
+     */
+    triangleToFace?: boolean;
+    /**
      * Creates the material of each slot of a mesh with face sets (spec 0003). Called once per slot;
      * `material` is the assigned AbcMaterial, when the file has one. Default: a grey
      * MeshStandardMaterial per slot. Ignored when `material` is set.
@@ -249,6 +254,7 @@ export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: Thre
         attributeNames: options.attributeNames,
         colorSpace: options.colorSpace,
         segmentsPerSpan: options.segmentsPerSpan,
+        triangleToFace: options.triangleToFace,
     };
 
     const materials = new Map<string, AbcMaterial | undefined>();
@@ -271,7 +277,7 @@ export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: Thre
             node = new THREE.Group();
         }
         node.name = obj.name;
-        node.userData.alembic = { path: obj.path, type: obj.type, schema: obj.schema };
+        node.userData.alembic = { ...node.userData.alembic, path: obj.path, type: obj.type, schema: obj.schema };
         for (const child of file.getChildren(obj.path)) {
             node.add(build(child));
         }
@@ -282,7 +288,12 @@ export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: Thre
         let node: any;
         if (obj.type === 'mesh' || obj.type === 'subd') {
             const attributes = options.attributes ?? DEFAULT_COLOR_ATTRIBUTES;
-            const mesh = file.getMesh(obj.path, { ...sample, attributes, groupByFaceSet: true });
+            const mesh = file.getMesh(obj.path, {
+                ...sample,
+                attributes,
+                groupByFaceSet: true,
+                triangleToFace: options.triangleToFace,
+            });
             const geometry = toBufferGeometry(mesh, THREE, options);
             const hasColors = Boolean(geometry.getAttribute('color'));
             const defaultMaterial = () =>
@@ -305,6 +316,9 @@ export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: Thre
             node = new THREE.Mesh(geometry, material ?? defaultMaterial());
             if (mesh.materialSlots) {
                 node.userData.alembicMaterialSlots = mesh.materialSlots;
+            }
+            if (mesh.triangleToFace) {
+                node.userData.alembic = { triangleToFace: Array.from(mesh.triangleToFace) };
             }
         } else if (obj.type === 'points') {
             node = toPoints(file.getPoints(obj.path, sample), THREE, { material: options.pointsMaterial });

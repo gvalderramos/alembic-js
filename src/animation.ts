@@ -181,8 +181,16 @@ export class AbcPlayer {
             }
         }
         // Topology changed: rebuild the geometry.
-        const mesh = this.file.getMesh(object.path, { ...sample, attributes, groupByFaceSet: true });
+        const mesh = this.file.getMesh(object.path, {
+            ...sample,
+            attributes,
+            groupByFaceSet: true,
+            triangleToFace: scene.triangleToFace,
+        });
         this.replaceGeometry(node, toBufferGeometry(mesh, this.THREE, scene));
+        if (mesh.triangleToFace) {
+            node.userData.alembic.triangleToFace = Array.from(mesh.triangleToFace);
+        }
     }
 
     private replaceGeometry(node: any, geometry: any): void {

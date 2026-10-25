@@ -89,7 +89,13 @@
             }
         </style>
         <script type="importmap">
-            { "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
+            {
+                "imports": {
+                    "three": "/three/build/three.module.js",
+                    "three/addons/": "/three/examples/jsm/",
+                    "alembic-js/stream": "/alembic-js/stream.mjs"
+                }
+            }
         </script>
     </head>
     <body>
@@ -105,6 +111,7 @@
             import * as THREE from 'three';
             import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
             import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+            import { applyFrame, decodeFrames } from 'alembic-js/stream';
 
             const renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
@@ -171,45 +178,8 @@
             document.getElementById('status').textContent =
                 `${triangles.toLocaleString()} triangles · drag to orbit, scroll to zoom`;
 
-            // Animation (spec 0004): the server samples frames with AbcPlayer; the page applies them.
-            const byPath = new Map();
-            gltf.scene.traverse((n) => {
-                if (n.userData.alembic?.path) byPath.set(n.userData.alembic.path, n);
-            });
-            const decode = (b64, Type) => {
-                const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-                return new Type(bytes.buffer);
-            };
-            const applyFrame = ({ objects }) => {
-                for (const [path, data] of Object.entries(objects)) {
-                    const node = byPath.get(path);
-                    if (!node) continue;
-                    if (data.matrix) {
-                        new THREE.Matrix4()
-                            .fromArray(data.matrix)
-                            .decompose(node.position, node.quaternion, node.scale);
-                    } else if (data.positions && node.geometry) {
-                        const geometry = node.geometry;
-                        const positions = decode(data.positions, Float32Array);
-                        const current = geometry.getAttribute('position');
-                        if (current && current.array.length === positions.length && !data.indices) {
-                            current.array.set(positions);
-                            current.needsUpdate = true;
-                        } else {
-                            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-                        }
-                        if (data.normals)
-                            geometry.setAttribute(
-                                'normal',
-                                new THREE.BufferAttribute(decode(data.normals, Float32Array), 3),
-                            );
-                        if (data.indices)
-                            geometry.setIndex(new THREE.BufferAttribute(decode(data.indices, Uint32Array), 1));
-                        geometry.computeBoundingSphere();
-                    }
-                }
-            };
-
+            // Animation (spec 0008): the server streams frames in the binary frame format, a chunk of
+            // frames per request; the page keeps a window of upcoming frames loaded and applies them.
             if (info.hasAnimation) {
                 const timeline = document.getElementById('timeline');
                 const scrub = document.getElementById('scrub');
@@ -218,20 +188,65 @@
                 timeline.style.display = 'flex';
                 scrub.min = info.startTime;
                 scrub.max = info.endTime;
+
+                const fps = info.fps ?? 24;
+                const frameCount = Math.max(1, Math.round((info.endTime - info.startTime) * fps) + 1);
+                const CHUNK = 12; // frames per request
+                const AHEAD = 48; // prefetch window, in frames
+                const frames = new Map(); // frame index -> decoded frame
+                const chunks = new Map(); // chunk index -> pending or finished request
+                let streamed = 0;
+                const frameIndex = (t) => Math.min(frameCount - 1, Math.max(0, Math.round((t - info.startTime) * fps)));
+                const loadChunk = (chunk) => {
+                    if (chunks.has(chunk)) return;
+                    const first = chunk * CHUNK;
+                    const count = Math.min(CHUNK, frameCount - first);
+                    const from = info.startTime + first / fps;
+                    const request = fetch(`/frames?from=${from}&step=${1 / fps}&count=${count}`)
+                        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
+                        .then((buffer) => {
+                            streamed += buffer.byteLength;
+                            if (chunks.get(chunk) !== request) return; // evicted while loading
+                            decodeFrames(buffer).forEach((frame, i) => frames.set(first + i, frame));
+                        })
+                        .catch((error) => {
+                            console.error(error);
+                            chunks.delete(chunk);
+                        });
+                    chunks.set(chunk, request);
+                };
+                // Loads the chunks of [index, index + AHEAD) (wrapping, since playback loops) and drops the rest.
+                const prefetch = (index) => {
+                    const keep = new Set([Math.floor(Math.max(0, index - CHUNK) / CHUNK)]);
+                    for (let i = 0; i < Math.min(AHEAD, frameCount); i += CHUNK) {
+                        keep.add(Math.floor(((index + i) % frameCount) / CHUNK));
+                    }
+                    keep.forEach(loadChunk);
+                    for (const chunk of chunks.keys()) {
+                        if (keep.has(chunk)) continue;
+                        chunks.delete(chunk);
+                        for (let i = chunk * CHUNK; i < (chunk + 1) * CHUNK; i++) frames.delete(i);
+                    }
+                };
+
                 let time = info.startTime;
+                let shown = -1;
                 let playing = false;
-                let pending = false;
-                const show = async (t) => {
+                const show = (t) => {
                     time = t;
                     scrub.value = t;
-                    label.textContent = `${t.toFixed(3)} s${info.fps ? ` · frame ${(t * info.fps).toFixed(1)}` : ''}`;
-                    if (pending) return; // drop frames while the previous one is loading
-                    pending = true;
-                    try {
-                        applyFrame(await fetch(`/frame?time=${t}`).then((r) => r.json()));
-                    } finally {
-                        pending = false;
+                    const index = frameIndex(t);
+                    prefetch(index);
+                    const frame = frames.get(index);
+                    if (frame && index !== shown) {
+                        applyFrame(gltf.scene, frame);
+                        shown = index;
                     }
+                    const state = frame ? '' : ' · buffering';
+                    label.textContent = `${t.toFixed(3)} s · frame ${(t * fps).toFixed(1)}${state}`;
+                    document.getElementById('status').textContent =
+                        `${triangles.toLocaleString()} triangles · ${(streamed / 1024 / 1024).toFixed(1)} MB streamed · drag to orbit, scroll to zoom`;
+                    return Boolean(frame);
                 };
                 scrub.addEventListener('input', () => show(Number(scrub.value)));
                 play.addEventListener('click', () => {
@@ -243,18 +258,19 @@
                     const now = performance.now(); // wall clock: rAF timestamps lag when the page is throttled
                     const delta = (now - last) / 1000;
                     last = now;
-                    if (playing) {
+                    // The clock waits while the current frame is buffering, so no frame is skipped for lack of data.
+                    const ready = show(time);
+                    if (playing && ready) {
                         const duration = info.endTime - info.startTime;
                         let t = time + delta;
                         if (t > info.endTime) t = info.startTime + ((t - info.startTime) % (duration || 1));
-                        show(t); // the clock keeps running; frames are dropped while one is loading
+                        time = t;
                     }
                     requestAnimationFrame(tick);
                 };
                 requestAnimationFrame(tick);
                 show(time);
             }
-
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
