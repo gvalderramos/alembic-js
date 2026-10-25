@@ -55,7 +55,7 @@
     "cmake-js": "^7.3.1",
     "esbuild": "0.25.11",
     "eslint": "^9",
-    "globals": "^15",
+    "globals": "^17",
     "node-addon-api": "^8.3.1",
     "prettier": "^3",
     "three": "^0.170.0",
