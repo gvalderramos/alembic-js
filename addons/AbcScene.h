@@ -197,7 +197,8 @@ struct MeshData {
     std::vector<MaterialSlot> materialSlots;
     bool faceSetsOverlap = false;
     std::vector<uint32_t> triangleToFace;
-    std::vector<uint32_t> vertexToPoint;
+    std::vector<uint32_t> vertexToPoint; // with MeshOptions::vertexToPoint (spec 0009)
+    bool hasVertexToPoint = false;
 };
 
 // Topology of a mesh/subd sample (spec 0009). Face arrays are only filled when requested.

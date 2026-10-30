@@ -89,6 +89,7 @@ abcjs::MeshOptions meshOptions(const Napi::CallbackInfo& info, size_t index)
     }
     options.groupByFaceSet = obj.Get("groupByFaceSet").ToBoolean().Value();
     options.triangleToFace = obj.Get("triangleToFace").ToBoolean().Value();
+    options.vertexToPoint = obj.Get("vertexToPoint").ToBoolean().Value();
     Napi::Value layout = obj.Get("layout");
     if (layout.IsString()) {
         const std::string value = layout.As<Napi::String>().Utf8Value();
@@ -187,6 +188,9 @@ Napi::Value meshToJs(Napi::Env env, const abcjs::MeshData& mesh, bool withTopolo
     }
     if (withTopology && !mesh.triangleToFace.empty()) {
         out.Set("triangleToFace", toTypedArray<Napi::Uint32Array>(env, mesh.triangleToFace));
+    }
+    if (withTopology && mesh.hasVertexToPoint) {
+        out.Set("vertexToPoint", toTypedArray<Napi::Uint32Array>(env, mesh.vertexToPoint));
     }
     out.Set("interpolated", Napi::Boolean::New(env, mesh.interpolated));
     if (!mesh.attributes.empty()) {

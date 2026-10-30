@@ -107,6 +107,11 @@ export interface AbcMesh {
     faceSetsOverlap?: boolean;
     /** Source polygon of every triangle (with `triangleToFace: true`). */
     triangleToFace?: Uint32Array;
+    /**
+     * Source point (index into the file's `P`) of every vertex, with `vertexToPoint: true` (spec 0009).
+     * The identity for layout 'points'. Expands per-point data to this mesh's vertex layout.
+     */
+    vertexToPoint?: Uint32Array;
     /** Requested `.arbGeomParams`, laid out like `positions` (see MeshOptions.attributes). */
     attributes?: Record<string, AbcMeshAttribute>;
 }
@@ -155,6 +160,8 @@ export interface MeshOptions extends SampleOptions {
     groupByFaceSet?: boolean;
     /** Return `triangleToFace`, the source polygon of every triangle. Default false. */
     triangleToFace?: boolean;
+    /** Return `vertexToPoint`, the source point of every vertex (spec 0009). Default false. */
+    vertexToPoint?: boolean;
 }
 
 /**

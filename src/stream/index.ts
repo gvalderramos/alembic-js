@@ -9,7 +9,7 @@
  * applyFrame(gltf.scene, frames[0]);
  * ```
  */
-export { applyFrame, getTriangleToFace } from './apply';
+export { applyFrame, getTriangleToFace, getVertexToPoint } from './apply';
 export { decodeFrames, FRAME_FORMAT_VERSION, FRAME_MAGIC, FrameFormatError, RECORD_KINDS, writeFrames } from './format';
 export { TOPOLOGY_HASH_ALGORITHM, topologyHash } from './topology';
 export type { CameraRecord, DecodedFrame, DeformRecord, FrameRecord, MeshRecord, TransformRecord } from './format';

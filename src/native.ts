@@ -31,6 +31,7 @@ export interface NativeMeshOptions extends NativeSampleOptions {
     layout?: string;
     groupByFaceSet?: boolean;
     triangleToFace?: boolean;
+    vertexToPoint?: boolean;
 }
 
 export interface NativeTopologyOptions extends NativeSampleOptions {

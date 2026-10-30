@@ -171,7 +171,7 @@ export class AbcFile {
     /** Triangulated geometry of a 'mesh' or 'subd' object. */
     getMesh(objectPath: string, options: MeshOptions = {}): AbcMesh {
         const [time, sample] = this.sample(options);
-        const { attributes, layout, groupByFaceSet, triangleToFace } = options;
+        const { attributes, layout, groupByFaceSet, triangleToFace, vertexToPoint } = options;
         return this.call(
             () =>
                 this.native.getMesh(objectPath, time, {
@@ -180,6 +180,7 @@ export class AbcFile {
                     layout,
                     groupByFaceSet,
                     triangleToFace,
+                    vertexToPoint,
                 }),
             objectPath,
         );
@@ -188,7 +189,7 @@ export class AbcFile {
     /** Same as getMesh() but read on a worker thread. */
     async getMeshAsync(objectPath: string, options: MeshOptions = {}): Promise<AbcMesh> {
         const [time, sample] = this.sample(options);
-        const { attributes, layout, groupByFaceSet, triangleToFace } = options;
+        const { attributes, layout, groupByFaceSet, triangleToFace, vertexToPoint } = options;
         try {
             return await this.native.getMeshAsync(objectPath, time, {
                 ...sample,
@@ -196,6 +197,7 @@ export class AbcFile {
                 layout,
                 groupByFaceSet,
                 triangleToFace,
+                vertexToPoint,
             });
         } catch (error) {
             throw wrapNativeError(error, { file: this.path, objectPath });
@@ -209,7 +211,7 @@ export class AbcFile {
      */
     getMeshFrame(objectPath: string, options: MeshOptions = {}): AbcMeshFrame {
         const [time, sample] = this.sample(options);
-        const { attributes, layout, groupByFaceSet, triangleToFace } = options;
+        const { attributes, layout, groupByFaceSet, triangleToFace, vertexToPoint } = options;
         return this.call(
             () =>
                 this.native.getMeshFrame(objectPath, time, {
@@ -218,6 +220,7 @@ export class AbcFile {
                     layout,
                     groupByFaceSet,
                     triangleToFace,
+                    vertexToPoint,
                 }),
             objectPath,
         );
@@ -226,7 +229,7 @@ export class AbcFile {
     /** Same as getMeshFrame() but read on a worker thread. */
     async getMeshFrameAsync(objectPath: string, options: MeshOptions = {}): Promise<AbcMeshFrame> {
         const [time, sample] = this.sample(options);
-        const { attributes, layout, groupByFaceSet, triangleToFace } = options;
+        const { attributes, layout, groupByFaceSet, triangleToFace, vertexToPoint } = options;
         try {
             return await this.native.getMeshFrameAsync(objectPath, time, {
                 ...sample,
@@ -234,6 +237,7 @@ export class AbcFile {
                 layout,
                 groupByFaceSet,
                 triangleToFace,
+                vertexToPoint,
             });
         } catch (error) {
             throw wrapNativeError(error, { file: this.path, objectPath });

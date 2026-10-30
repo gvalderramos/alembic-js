@@ -663,6 +663,14 @@ MeshData readMeshSchema(SchemaT& schema, const ObjectRecord& rec, const SampleSp
         }
     }
 
+    // Source point of every vertex (spec 0009): the corner's point index, or the identity.
+    if (withTopology && options.vertexToPoint) {
+        mesh.hasVertexToPoint = true;
+        mesh.vertexToPoint.resize(numVerts);
+        for (size_t v = 0; v < numVerts; ++v)
+            mesh.vertexToPoint[v] = static_cast<uint32_t>(perCorner ? static_cast<size_t>(fi[v]) : v);
+    }
+
     // Fan-triangulate. Alembic winds polygons clockwise; three.js/WebGL expect
     // counter-clockwise, so each triangle is emitted reversed. Per-frame reads skip this.
     size_t offset = 0;
