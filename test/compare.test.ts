@@ -10,12 +10,14 @@ import {
     applyFrame,
     buildThreeScene,
     decodeFrames,
+    encodeFrames,
     FrameFormatError,
     getVertexToPoint,
     writeFrames,
     type AbcArrayValue,
     type AttributeRecord,
     type DecodedFrame,
+    type MeshRecord,
 } from '../src';
 import { RECORD_KINDS } from '../src/stream';
 import * as legacy from './legacy/format-v1';
@@ -289,5 +291,44 @@ describe('attribute records', () => {
             );
         }
         file.close();
+    });
+});
+
+describe('encodeFrames velocities', () => {
+    const F = (frame: number) => frame / 24;
+    const sim = '/sim/simShape';
+
+    async function simRecord(time: number, options: Parameters<typeof encodeFrames>[2] = {}): Promise<MeshRecord> {
+        const file = AbcFile.open(fixture('animation'));
+        try {
+            const [frame] = decodeFrames(await encodeFrames(file, [time], { paths: [sim], ...options }));
+            const record = frame.objects.get(sim)!;
+            assert.equal(record.kind, 'mesh', 'the topology differs from the reference (time 0)');
+            return record as MeshRecord;
+        } finally {
+            file.close();
+        }
+    }
+
+    it('moves a changing mesh with its velocities between samples', async () => {
+        // /sim at frame 2 + 0.25: 6 points at y = 0 with velocity (0, 1, 0) units per second.
+        const dt = F(0.25);
+        const floor = await simRecord(F(2) + dt, { mode: 'interpolate' });
+        const moved = await simRecord(F(2) + dt, { mode: 'interpolate', useVelocities: true });
+        assert.equal(floor.positions.length, 6 * 3);
+        assert.equal(moved.positions.length, floor.positions.length);
+        assert.deepEqual(Array.from(moved.indices), Array.from(floor.indices));
+        for (let v = 0; v < floor.positions.length / 3; v++) {
+            assert.equal(floor.positions[v * 3 + 1], 0, 'without velocities: the floor sample');
+            assert.ok(Math.abs(moved.positions[v * 3 + 1] - dt) < 1e-6, `y = v * dt at vertex ${v}`);
+            assert.equal(moved.positions[v * 3], floor.positions[v * 3]);
+            assert.equal(moved.positions[v * 3 + 2], floor.positions[v * 3 + 2]);
+        }
+    });
+
+    it('applies velocityScale', async () => {
+        const dt = F(0.5);
+        const record = await simRecord(F(2) + dt, { mode: 'floor', useVelocities: true, velocityScale: 24 });
+        assert.ok(Math.abs(record.positions[1] - dt * 24) < 1e-5);
     });
 });

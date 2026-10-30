@@ -1,6 +1,6 @@
 # 0009 - Topology Info and Data for Comparing Caches
 
-**Status:** In progress (slices 1-4 implemented)
+**Status:** Implemented
 
 ## Overview
 Review and pipeline tools compare two versions of the same cache: did the topology change, how far did each point move, and what does the motion look like between samples. alembic-js has most of the pieces (topology variance, per-frame reads, interpolation, frame streaming) but no cheap way to identify a mesh's topology, no way to map a viewer vertex back to its source point, and no way to stream a per-vertex value that isn't a position. This spec adds those three things, plus velocity options on the frame encoder.
@@ -155,6 +155,7 @@ interface EncodeOptions {
 - **`applyFrame()` copies attribute data when it creates a `BufferAttribute`.** Later records update that copy in place, so a decoded packet the app keeps (for replay) is never written to. A name already on the geometry with another item size is replaced.
 - **The "old decoder" test uses a frozen copy of the spec 0008 decoder** (`test/legacy/format-v1.ts`) and a checked-in packet (`test/fixtures/attribute_record.bin`), which the writer must also reproduce byte for byte.
 - **Release:** ships in the same npm minor as spec 0008 (the first release with `alembic-js/stream`). Consumers pin that version.
+- **That minor is 1.2.0, cut by semantic-release, not by a version bump in a PR.** `package.json` stays `0.1.0`; CI stamps the version into the verified tarball. The last tag and GitHub release is `v1.1.0`; every push to `main` since has failed in the Release step, so 0008 hasn't been released yet. The 0009 PRs are stacked so they land on `main` in one push (one `feat:` squash commit), which releases 0008 + 0009 together as 1.2.0 once the Release step works again.
 
 ## Implementation plan
 1. **`getTopology` and `topologyHash`.** Native read and hash, TS types, JS reference implementation. Tests: on `animation.abc`, `/wave` has one hash at every sample and `/sim` differs per sample; native hash equals `topologyHash(faceCounts, faceIndices)` from `faces: true`; a hand-computed hash for a one-quad mesh (golden value in the test); empty-mesh value; `ERR_ABC_INVALID_ARGUMENT` on an xform.

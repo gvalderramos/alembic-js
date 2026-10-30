@@ -86,6 +86,8 @@ Every failure throws an `AlembicError` with a `code` (plus `file`/`objectPath` w
 | `getInfo()` | `AbcFileInfo`: path, coreType, appName, library/archive version, whenWritten, userDescription, objectCount, hasAnimation, startTime, endTime |
 | `getObjects()` / `getChildren(path?)` / `getObject(path)` / `traverse(fn)` | hierarchy (`AbcObject`: name, path, parent, children, type, schema, numSamples, animated) |
 | `getMesh(path, {time})` / `getMeshes({time})` | `AbcMesh` for `mesh` and `subd` objects |
+| `getTopology(path, {time, faces})` / `getTopologyAsync(...)` | `AbcTopology` of a mesh/subd: point, face and corner counts and a topology `hash`, without triangulating; `faces: true` adds the raw `faceCounts`/`faceIndices` |
+| `getTopologyChanges(path)` | `Promise<AbcTopologyChange[]>`: the first sample and every sample whose topology (hash or point count) differs from the previous one |
 | `getTransform(path, {time})` | local and world matrices, `inheritsTransform` |
 | `getCamera(path, {time})` | focal length, apertures, near/far, vertical fov, aspect, world matrix |
 | `getPoints(path, {time})` / `getAllPoints()` | `AbcPoints`: positions, ids (`BigUint64Array`), velocities, widths |
@@ -106,6 +108,7 @@ Mesh notes:
 - Polygons are fan-triangulated, and Alembic's clockwise winding becomes counter-clockwise (three.js/WebGL).
 - When normals or UVs are face-varying, vertices are split per face corner. Otherwise the original points are shared.
 - Data is copied into JS-owned typed arrays, so no native memory is exposed.
+- `getMesh(path, { vertexToPoint: true })` adds `vertexToPoint`, the source point of every vertex (the identity for layout `'points'`), so per-point data can be laid out like `positions`: `vertexData[v] = pointData[vertexToPoint[v]]`.
 - `getMesh(path, { attributes: ['Cd', 'uv2'] })` (or `'*'`) adds geometry attributes laid out like `positions`. Attributes stored per face corner or per face switch the mesh to one vertex per corner; `mesh.layout` tells you which (`'points'` or `'corners'`). Nothing is added unless you ask.
 
 ### Animation
@@ -123,6 +126,20 @@ file.getPoints(path, { time: 0.51, mode: 'floor', useVelocities: true }); // mov
 - `getMeshFrame(path, options)` returns positions (and normals and requested attributes) in the layout of the last `getMesh()` with the same options, without re-triangulating. It throws `ERR_ABC_TOPOLOGY_CHANGED` when the topology differs.
 - `getMeshAsync()` / `getMeshFrameAsync()` read on a worker thread; `close()` while they run is safe.
 - three.js: `new AbcPlayer(file, root, THREE, { mode: 'interpolate' })` plays a scene built by `buildThreeScene()` (call `player.update(delta)` each frame, or `setTime(seconds)`). It updates geometry in place and rebuilds it only when the topology changes. `createTransformClip(file, root, THREE)` bakes animated transforms into a regular `AnimationClip` for `AnimationMixer`.
+
+### Comparing caches
+To compare two versions of a cache ([spec 0009](specs/0009-topology-and-compare-data.md)):
+
+```ts
+const a = fileA.getTopology('/geo/body');                  // cheap: no triangulation
+const b = fileB.getTopology('/geo/body');
+const sameTopology = a.hash === b.hash && a.pointCount === b.pointCount;
+const changes = await fileA.getTopologyChanges('/geo/body'); // [{ sampleIndex, sampleTime, pointCount, faceCount, hash }]
+```
+
+- **Topology hash (`fnv1a64-faces-v1`).** FNV-1a 64-bit (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`) over every face count, then every face index, each as uint32 little-endian, in file order (no rewinding, no triangulation; negative indices hash as their uint32 bit pattern). Written as 16 lowercase hex digits; an empty mesh is `cbf29ce484222325`. Point positions and the point count aren't hashed: compare `pointCount` too. `topologyHash(faceCounts, faceIndices)` is the reference implementation (also in `alembic-js/stream`); other tools that store topology hashes must reproduce the test vectors in [the spec](specs/0009-topology-and-compare-data.md#hash-definition-fnv1a64-faces-v1). A change to the definition gets a new `hashAlgorithm` name.
+- **Topology is never interpolated:** `mode: 'interpolate'` reads the floor sample. Hashes are cached per archive by the Alembic array digests, so a constant or homogeneous mesh is hashed once.
+- **Per-point values in a viewer:** compute them from `layout: 'points'` reads, expand them with `vertexToPoint` (`buildThreeScene(file, THREE, { vertexToPoint: true })` stores it in `userData.alembic`, and `getVertexToPoint(node)` returns it) and send them as `attribute` frame records (below).
 
 ### Face sets and materials
 - `getMesh()` returns `groups` (triangle ranges) and `materialSlots` when a mesh's face sets are contiguous runs of faces. With `groupByFaceSet: true` the triangles are reordered so every face set is one range, which is what Blender's per-material face sets need. Faces in no set form a final `default` slot. Overlapping (non-exclusive) sets are flagged with `faceSetsOverlap`, and each face goes to the first set listing it. `triangleToFace: true` adds the source polygon of every triangle.
@@ -162,10 +179,11 @@ const frames = decodeFrames(await (await fetch('/frames?...')).arrayBuffer());
 applyFrame(gltf.scene, frames[0]);
 ```
 
-- `encodeFrames(file, times, { paths, normals, mode, attributes, triangleToFace, referenceTime })` samples every animated xform, mesh, subd and camera by default. Each object becomes one record per frame: `transform` (local matrix), `deform` (positions and normals in the scene's vertex layout, read with `getMeshFrame()`), `mesh` (full geometry, when the topology differs from the scene's) or `camera` (fov, near, far). Pass the `attributes` the scene was built with, so the vertex layouts match, and `referenceTime` if it wasn't built at time 0.
+- `encodeFrames(file, times, { paths, normals, mode, useVelocities, velocityScale, attributes, triangleToFace, referenceTime })` samples every animated xform, mesh, subd and camera by default. Each object becomes one record per frame: `transform` (local matrix), `deform` (positions and normals in the scene's vertex layout, read with `getMeshFrame()`), `mesh` (full geometry, when the topology differs from the scene's) or `camera` (fov, near, far). Pass the `attributes` the scene was built with, so the vertex layouts match, and `referenceTime` if it wasn't built at time 0. Sub-frame times work with `mode: 'interpolate'`; meshes whose topology changes are read at the floor sample, and `useVelocities: true` moves them along their velocities instead.
 - `decodeFrames(buffer)` returns `{ time, objects: Map<path, record> }[]`. Arrays are typed-array views into the buffer, not copies.
 - `applyFrame(root, frame)` finds objects by `userData.alembic.path` (`buildThreeScene()` sets it, and GLTFExporter keeps it in the GLB), updates attributes in place, swaps in a new geometry for `mesh` records and goes back to the original geometry on the next `deform` record. It also handles the per-material meshes GLTFLoader creates for meshes with face sets.
 - `buildThreeScene(file, THREE, { triangleToFace: true })` stores each mesh's `triangleToFace` in `userData.alembic` as a plain array, so it survives the GLB export; `getTriangleToFace(node)` returns it as a `Uint32Array`.
+- `attribute` records (`{ kind: 'attribute', name, itemSize, data: Float32Array }`, spec 0009) carry a per-vertex float value such as a distance for a heatmap. `encodeFrames()` doesn't produce them: build them with `writeFrames()` and send them in their own packet (a frame holds one record per object). `applyFrame()` sets `geometry.attributes[name]`, in place when the size matches, and skips a record whose vertex count doesn't match the current geometry. Decoders from before spec 0009 skip them.
 - `writeFrames(frames)` writes records you build yourself. Compression is left to HTTP (gzip/brotli).
 
 Wire format, little-endian: `'ABCF'`, version u16, frame count u16; per frame: time f64, record count u32; per record: path length u16, UTF-8 path, kind u8, payload length u32, zero padding to a multiple of 4, payload. Payloads are raw `Float32Array`/`Uint32Array` data; see [the spec](specs/0008-frame-streaming.md#payloads) for each kind.
@@ -252,7 +270,7 @@ yarn fixtures
 - [ ] Test assets: real-world files for every feature ([spec](specs/0007-test-assets.md), [catalog](resource/README.md))
 - [ ] Alembic instancing (found while building the test assets; see spec 0007)
 - [x] Streaming frames to the browser: binary frame format and a browser decoder ([spec](specs/0008-frame-streaming.md))
-- [ ] Topology hashes, vertex-to-point maps and attribute records for comparing caches ([spec](specs/0009-topology-and-compare-data.md))
+- [x] Topology hashes, vertex-to-point maps and attribute records for comparing caches ([spec](specs/0009-topology-and-compare-data.md))
 
 ---
 
