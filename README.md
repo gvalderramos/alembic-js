@@ -252,6 +252,7 @@ yarn fixtures
 - [ ] Test assets: real-world files for every feature ([spec](specs/0007-test-assets.md), [catalog](resource/README.md))
 - [ ] Alembic instancing (found while building the test assets; see spec 0007)
 - [x] Streaming frames to the browser: binary frame format and a browser decoder ([spec](specs/0008-frame-streaming.md))
+- [ ] Topology hashes, vertex-to-point maps and attribute records for comparing caches ([spec](specs/0009-topology-and-compare-data.md))
 
 ---
 
