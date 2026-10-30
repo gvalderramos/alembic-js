@@ -78,6 +78,16 @@ FNV-1a 64-bit (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`) over th
 
 The arrays are hashed as stored in the Alembic sample: no rewinding (alembic-js flips winding only when triangulating), no triangulation, no dependence on normals, UVs or face sets. Point positions and the point count are not hashed; compare `pointCount` separately. The result is written as 16 lowercase hex digits, zero-padded. An empty mesh hashes to `cbf29ce484222325`.
 
+Test vectors, shared with nitpick-health-core spec 0004 (both implementations must pass them):
+
+| faceCounts | faceIndices | hash |
+|---|---|---|
+| [] | [] | `cbf29ce484222325` |
+| [3] | [0,1,2] | `b623a479d2984da5` |
+| [4] | [0,1,2,3] | `0e8a69ddf947c4f1` |
+| [3,3] | [0,1,2,0,2,3] | `18e3a471ae049257` |
+| [3,3] | [0,2,1,0,3,2] | `516fb1c0a2254197` |
+
 The same definition is meant to be computed by other readers of the file, so a hash stored by one tool can be compared with one computed by alembic-js. Any change is a new `hashAlgorithm` name, never a silent change.
 
 ### Vertex to point
