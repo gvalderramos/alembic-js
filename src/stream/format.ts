@@ -6,6 +6,8 @@
  * frame    time f64 | record count u32 | records...
  * record   path length u16 | path utf-8 | kind u8 | payload length u32 | zero padding | payload
  * ```
+ * attribute (kind 5, spec 0009): name length u16 | name utf-8 | zero padding to 4 bytes | itemSize u32
+ *          | count u32 | data f32[count * itemSize]
  * Everything is little-endian. The padding (0-3 bytes) makes every payload start at a multiple of
  * 4 bytes from the start of the buffer, so arrays are decoded as typed-array views without copying.
  */
@@ -14,7 +16,7 @@ export const FRAME_MAGIC = 'ABCF';
 export const FRAME_FORMAT_VERSION = 1;
 
 /** Record kind codes on the wire. */
-export const RECORD_KINDS = { transform: 1, deform: 2, mesh: 3, camera: 4 } as const;
+export const RECORD_KINDS = { transform: 1, deform: 2, mesh: 3, camera: 4, attribute: 5 } as const;
 
 const FLAG_NORMALS = 1;
 const FLAG_TRIANGLE_TO_FACE = 2;
@@ -53,7 +55,20 @@ export interface CameraRecord {
     far: number;
 }
 
-export type FrameRecord = TransformRecord | DeformRecord | MeshRecord | CameraRecord;
+/**
+ * A per-vertex float attribute, e.g. a distance for a heatmap (spec 0009). Laid out like the
+ * geometry in the scene: `data` has `itemSize` values per vertex. applyFrame() sets
+ * `geometry.attributes[name]`. Sent in its own packet next to the position packet, since a frame
+ * holds one record per object.
+ */
+export interface AttributeRecord {
+    kind: 'attribute';
+    name: string;
+    itemSize: number;
+    data: Float32Array;
+}
+
+export type FrameRecord = TransformRecord | DeformRecord | MeshRecord | CameraRecord | AttributeRecord;
 
 export interface DecodedFrame {
     /** Time in seconds. */
@@ -71,6 +86,8 @@ export class FrameFormatError extends Error {
 }
 
 const align4 = (n: number) => (n + 3) & ~3;
+
+const textEncoder = new TextEncoder();
 
 function payloadLength(record: FrameRecord): number {
     switch (record.kind) {
@@ -90,6 +107,8 @@ function payloadLength(record: FrameRecord): number {
             );
         case 'camera':
             return 3 * 4;
+        case 'attribute':
+            return align4(2 + textEncoder.encode(record.name).length) + 8 + record.data.length * 4;
     }
 }
 
@@ -126,6 +145,19 @@ export function writeFrames(frames: readonly DecodedFrame[]): ArrayBuffer {
                 record.triangleToFace.length * 3 !== record.indices.length
             ) {
                 throw new FrameFormatError(`'${path}': triangleToFace needs one value per triangle`);
+            }
+            if (record.kind === 'attribute') {
+                if (!Number.isInteger(record.itemSize) || record.itemSize < 1) {
+                    throw new FrameFormatError(`'${path}': attribute itemSize must be a positive integer`);
+                }
+                if (record.data.length % record.itemSize !== 0) {
+                    throw new FrameFormatError(
+                        `'${path}': attribute '${record.name}' has ${record.data.length} values, not a multiple of itemSize ${record.itemSize}`,
+                    );
+                }
+                if (textEncoder.encode(record.name).length > 0xffff) {
+                    throw new FrameFormatError(`'${path}': attribute name is longer than 65535 bytes`);
+                }
             }
             if (record.kind === 'transform' && record.matrix.length !== 16) {
                 throw new FrameFormatError(`'${path}': a matrix has 16 values, got ${record.matrix.length}`);
@@ -205,6 +237,17 @@ export function writeFrames(frames: readonly DecodedFrame[]): ArrayBuffer {
                 case 'camera':
                     f32s([record.fov, record.near, record.far]);
                     break;
+                case 'attribute': {
+                    const name = encoder.encode(record.name);
+                    const start = offset;
+                    view.setUint16(offset, name.length, true);
+                    bytes.set(name, offset + 2);
+                    offset = start + align4(2 + name.length); // padding bytes stay zero
+                    u32(record.itemSize);
+                    u32(record.data.length / record.itemSize);
+                    f32s(record.data);
+                    break;
+                }
             }
         }
     });
@@ -317,6 +360,18 @@ export function decodeFrames(buffer: ArrayBuffer | ArrayBufferView): DecodedFram
                 case RECORD_KINDS.camera: {
                     const [fov, near, far] = f32s(3);
                     objects.set(path, { kind: 'camera', fov, near, far });
+                    break;
+                }
+                case RECORD_KINDS.attribute: {
+                    if (p + 2 > end) fail(`Record '${path}' is shorter than its arrays`);
+                    const nameLength = view.getUint16(p, true);
+                    if (p + 2 + nameLength > end) fail(`Record '${path}' is shorter than its arrays`);
+                    const name = decoder.decode(new Uint8Array(data, p + 2, nameLength));
+                    p += align4(2 + nameLength);
+                    if (p + 8 > end) fail(`Record '${path}' is shorter than its arrays`);
+                    const itemSize = u32();
+                    const count = u32();
+                    objects.set(path, { kind: 'attribute', name, itemSize, data: f32s(count * itemSize) });
                     break;
                 }
                 default:

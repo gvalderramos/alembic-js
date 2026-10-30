@@ -38,7 +38,15 @@ export { encodeFrames } from './encode';
 export type { EncodeOptions } from './encode';
 export { applyFrame, decodeFrames, FrameFormatError, getTriangleToFace, getVertexToPoint, writeFrames } from './stream';
 export { TOPOLOGY_HASH_ALGORITHM, topologyHash } from './stream/topology';
-export type { CameraRecord, DecodedFrame, DeformRecord, FrameRecord, MeshRecord, TransformRecord } from './stream';
+export type {
+    AttributeRecord,
+    CameraRecord,
+    DecodedFrame,
+    DeformRecord,
+    FrameRecord,
+    MeshRecord,
+    TransformRecord,
+} from './stream';
 export { tessellateCurves, widthsPerVertex } from './curves';
 export type { TessellatedCurves, TessellateOptions } from './curves';
 export {

@@ -3,7 +3,7 @@
  * imported: new geometries are created with the constructors of the objects already in the scene,
  * so they belong to the caller's three instance.
  */
-import type { DecodedFrame, DeformRecord, MeshRecord } from './format';
+import type { AttributeRecord, DecodedFrame, DeformRecord, MeshRecord } from './format';
 
 /** Geometry each mesh had before a 'mesh' record replaced it; 'deform' records apply to it. */
 const referenceGeometry = new WeakMap<object, any>();
@@ -148,11 +148,38 @@ function applyMesh(node: any, record: MeshRecord): void {
     delete alembic.vertexToPoint;
 }
 
+function applyAttribute(node: any, record: AttributeRecord): void {
+    const count = record.data.length / record.itemSize;
+    let created: any;
+    const updated = new Set<unknown>();
+    for (const mesh of drawables(node)) {
+        const geometry = mesh.geometry;
+        const position = geometry.getAttribute('position');
+        if (!position || position.count !== count) {
+            continue; // the topology changed under the record
+        }
+        const existing = geometry.getAttribute(record.name);
+        if (existing && existing.itemSize === record.itemSize && existing.array.length === record.data.length) {
+            if (!updated.has(existing)) {
+                existing.array.set(record.data);
+                existing.needsUpdate = true;
+                updated.add(existing);
+            }
+            continue;
+        }
+        // A copy, so later in-place updates never write into a decoded packet the app may keep.
+        created ??= new position.constructor(new Float32Array(record.data), record.itemSize);
+        geometry.setAttribute(record.name, created);
+    }
+}
+
 /**
  * Updates the objects of a scene built by buildThreeScene() (or loaded from its GLB export) with a
  * decoded frame. Objects are found by `userData.alembic.path`; records for paths that are not in
  * the scene are ignored. Mesh attributes are updated in place; a 'mesh' record (changed topology)
- * swaps in a new geometry, and the next 'deform' record restores the original one.
+ * swaps in a new geometry, and the next 'deform' record restores the original one. An 'attribute'
+ * record sets `geometry.attributes[name]` (in place when the size matches) and is skipped when its
+ * vertex count doesn't match the current geometry.
  */
 export function applyFrame(root: any, frame: DecodedFrame): void {
     let nodes = nodesByRoot.get(root) ?? indexNodes(root);
@@ -177,6 +204,9 @@ export function applyFrame(root: any, frame: DecodedFrame): void {
                 break;
             case 'mesh':
                 applyMesh(node, record);
+                break;
+            case 'attribute':
+                applyAttribute(node, record);
                 break;
             case 'camera':
                 if (node.isPerspectiveCamera) {
