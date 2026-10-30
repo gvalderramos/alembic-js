@@ -36,7 +36,7 @@ export { AbcPlayer, createTransformClip } from './animation';
 export type { PlayerOptions, ThreeAnimationModule } from './animation';
 export { encodeFrames } from './encode';
 export type { EncodeOptions } from './encode';
-export { applyFrame, decodeFrames, FrameFormatError, getTriangleToFace, writeFrames } from './stream';
+export { applyFrame, decodeFrames, FrameFormatError, getTriangleToFace, getVertexToPoint, writeFrames } from './stream';
 export { TOPOLOGY_HASH_ALGORITHM, topologyHash } from './stream/topology';
 export type { CameraRecord, DecodedFrame, DeformRecord, FrameRecord, MeshRecord, TransformRecord } from './stream';
 export { tessellateCurves, widthsPerVertex } from './curves';

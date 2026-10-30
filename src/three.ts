@@ -70,6 +70,12 @@ export interface ThreeSceneOptions extends SampleOptions, GeometryOptions {
      */
     triangleToFace?: boolean;
     /**
+     * Store the source point of every vertex in `userData.alembic.vertexToPoint` of each mesh (a plain
+     * array, like `triangleToFace`), so per-point data can be laid out like the geometry (spec 0009).
+     * Read it with getVertexToPoint(). Default false.
+     */
+    vertexToPoint?: boolean;
+    /**
      * Creates the material of each slot of a mesh with face sets (spec 0003). Called once per slot;
      * `material` is the assigned AbcMaterial, when the file has one. Default: a grey
      * MeshStandardMaterial per slot. Ignored when `material` is set.
@@ -255,6 +261,7 @@ export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: Thre
         colorSpace: options.colorSpace,
         segmentsPerSpan: options.segmentsPerSpan,
         triangleToFace: options.triangleToFace,
+        vertexToPoint: options.vertexToPoint,
     };
 
     const materials = new Map<string, AbcMaterial | undefined>();
@@ -293,6 +300,7 @@ export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: Thre
                 attributes,
                 groupByFaceSet: true,
                 triangleToFace: options.triangleToFace,
+                vertexToPoint: options.vertexToPoint,
             });
             const geometry = toBufferGeometry(mesh, THREE, options);
             const hasColors = Boolean(geometry.getAttribute('color'));
@@ -319,6 +327,9 @@ export function buildThreeScene(file: AbcFile, THREE: ThreeModule, options: Thre
             }
             if (mesh.triangleToFace) {
                 node.userData.alembic = { triangleToFace: Array.from(mesh.triangleToFace) };
+            }
+            if (mesh.vertexToPoint) {
+                node.userData.alembic = { ...node.userData.alembic, vertexToPoint: Array.from(mesh.vertexToPoint) };
             }
         } else if (obj.type === 'points') {
             node = toPoints(file.getPoints(obj.path, sample), THREE, { material: options.pointsMaterial });

@@ -186,10 +186,14 @@ export class AbcPlayer {
             attributes,
             groupByFaceSet: true,
             triangleToFace: scene.triangleToFace,
+            vertexToPoint: scene.vertexToPoint,
         });
         this.replaceGeometry(node, toBufferGeometry(mesh, this.THREE, scene));
         if (mesh.triangleToFace) {
             node.userData.alembic.triangleToFace = Array.from(mesh.triangleToFace);
+        }
+        if (mesh.vertexToPoint) {
+            node.userData.alembic.vertexToPoint = Array.from(mesh.vertexToPoint);
         }
     }
 

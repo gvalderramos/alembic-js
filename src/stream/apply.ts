@@ -7,8 +7,8 @@ import type { DecodedFrame, DeformRecord, MeshRecord } from './format';
 
 /** Geometry each mesh had before a 'mesh' record replaced it; 'deform' records apply to it. */
 const referenceGeometry = new WeakMap<object, any>();
-/** triangleToFace of each object before a 'mesh' record replaced it. */
-const referenceTriangleToFace = new WeakMap<object, unknown>();
+/** triangleToFace and vertexToPoint of each object before a 'mesh' record replaced its geometry. */
+const referenceMaps = new WeakMap<object, { triangleToFace: unknown; vertexToPoint: unknown }>();
 const nodesByRoot = new WeakMap<object, Map<string, any>>();
 
 function indexNodes(root: any): Map<string, any> {
@@ -49,6 +49,14 @@ function restoreReference(mesh: any): void {
     }
 }
 
+function restoreMap(alembic: any, key: string, value: unknown): void {
+    if (value === undefined) {
+        delete alembic[key];
+    } else {
+        alembic[key] = value;
+    }
+}
+
 function applyDeform(node: any, record: DeformRecord): void {
     const updated = new Set<unknown>();
     for (const mesh of drawables(node)) {
@@ -75,8 +83,10 @@ function applyDeform(node: any, record: DeformRecord): void {
         }
         updateBounds(geometry);
     }
-    if (referenceTriangleToFace.has(node)) {
-        node.userData.alembic.triangleToFace = referenceTriangleToFace.get(node);
+    const reference = referenceMaps.get(node);
+    if (reference) {
+        restoreMap(node.userData.alembic, 'triangleToFace', reference.triangleToFace);
+        restoreMap(node.userData.alembic, 'vertexToPoint', reference.vertexToPoint);
     }
 }
 
@@ -126,14 +136,16 @@ function applyMesh(node: any, record: MeshRecord): void {
         mesh.geometry = geometry;
     });
     const alembic = node.userData.alembic;
-    if (!referenceTriangleToFace.has(node)) {
-        referenceTriangleToFace.set(node, alembic.triangleToFace);
+    if (!referenceMaps.has(node)) {
+        referenceMaps.set(node, { triangleToFace: alembic.triangleToFace, vertexToPoint: alembic.vertexToPoint });
     }
     if (record.triangleToFace) {
         alembic.triangleToFace = record.triangleToFace;
     } else {
         delete alembic.triangleToFace;
     }
+    // 'mesh' records don't carry vertexToPoint: the scene's map doesn't fit the new vertices.
+    delete alembic.vertexToPoint;
 }
 
 /**
@@ -185,6 +197,21 @@ export function applyFrame(root: any, frame: DecodedFrame): void {
  */
 export function getTriangleToFace(node: any): Uint32Array | undefined {
     const value = node?.userData?.alembic?.triangleToFace;
+    if (value instanceof Uint32Array) {
+        return value;
+    }
+    return Array.isArray(value) ? Uint32Array.from(value) : undefined;
+}
+
+/**
+ * Source point of every vertex of an object's mesh, when the scene was built with
+ * `vertexToPoint: true` (spec 0009). Expands per-point data (one value per point of the file) to
+ * the geometry's vertex layout: `vertexData[v] = pointData[vertexToPoint[v]]`. Returns undefined
+ * while a 'mesh' record (changed topology) is applied. Plain arrays from a GLB round trip are
+ * returned as a Uint32Array.
+ */
+export function getVertexToPoint(node: any): Uint32Array | undefined {
+    const value = node?.userData?.alembic?.vertexToPoint;
     if (value instanceof Uint32Array) {
         return value;
     }
