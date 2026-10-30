@@ -1,6 +1,6 @@
 # 0009 - Topology Info and Data for Comparing Caches
 
-**Status:** In progress (slices 1-3 implemented)
+**Status:** In progress (slices 1-4 implemented)
 
 ## Overview
 Review and pipeline tools compare two versions of the same cache: did the topology change, how far did each point move, and what does the motion look like between samples. alembic-js has most of the pieces (topology variance, per-frame reads, interpolation, frame streaming) but no cheap way to identify a mesh's topology, no way to map a viewer vertex back to its source point, and no way to stream a per-vertex value that isn't a position. This spec adds those three things, plus velocity options on the frame encoder.
@@ -152,6 +152,8 @@ interface EncodeOptions {
 - **Hashes are cached per archive by `path|faceCounts digest|faceIndices digest`**, separately from the per-frame layout cache, so `getTopology()` at any sample of a constant mesh hashes once. Files without digests (HDF5) are hashed on every read.
 - **The face-read counter is internal.** `getDebugStats()` exists on the native handle for tests and isn't part of the typed API.
 - **A `mesh` record drops `vertexToPoint` from the node; the next `deform` record restores it.** Mesh records don't carry the map, and the scene's map doesn't fit the new vertices; `getVertexToPoint()` returns undefined meanwhile. `AbcPlayer` rebuilds keep it, since they re-read the mesh with the scene's options.
+- **`applyFrame()` copies attribute data when it creates a `BufferAttribute`.** Later records update that copy in place, so a decoded packet the app keeps (for replay) is never written to. A name already on the geometry with another item size is replaced.
+- **The "old decoder" test uses a frozen copy of the spec 0008 decoder** (`test/legacy/format-v1.ts`) and a checked-in packet (`test/fixtures/attribute_record.bin`), which the writer must also reproduce byte for byte.
 - **Release:** ships in the same npm minor as spec 0008 (the first release with `alembic-js/stream`). Consumers pin that version.
 
 ## Implementation plan

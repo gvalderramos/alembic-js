@@ -5,3 +5,4 @@
 
 # Alembic archives are binary; never convert line endings
 *.abc binary
+*.bin binary
