@@ -24,6 +24,14 @@ export interface EncodeOptions {
     normals?: boolean;
     mode?: SampleOptions['mode'];
     /**
+     * Move mesh positions from the chosen sample to each time with velocities (spec 0009), as in
+     * SampleOptions. Smooths sub-frames of meshes whose topology changes, which 'interpolate'
+     * reads at the floor sample. Default false.
+     */
+    useVelocities?: boolean;
+    /** Multiplier for velocities, as in SampleOptions (e.g. 1 / fps for per-frame velocities). */
+    velocityScale?: number;
+    /**
      * The `attributes` option the scene was built with, so positions are in the same vertex layout.
      * Default: DEFAULT_COLOR_ATTRIBUTES, as in buildThreeScene().
      */
@@ -129,7 +137,13 @@ export async function encodeFrames(file: AbcFile, times: number[], options: Enco
     };
 
     const readMesh = async (stream: MeshStream, time: number): Promise<FrameRecord> => {
-        const sample: MeshOptions = { ...meshOptions, time, mode };
+        const sample: MeshOptions = {
+            ...meshOptions,
+            time,
+            mode,
+            useVelocities: options.useVelocities,
+            velocityScale: options.velocityScale,
+        };
         if (stream.object.topology !== 'heterogeneous') {
             try {
                 const frame = await file.getMeshFrameAsync(stream.object.path, sample);
