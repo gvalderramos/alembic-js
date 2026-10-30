@@ -199,6 +199,46 @@ Napi::Value meshToJs(Napi::Env env, const abcjs::MeshData& mesh, bool withTopolo
     return out;
 }
 
+// Topology record (spec 0009). Face arrays are copied only when they were requested.
+Napi::Object topologyToJs(Napi::Env env, const abcjs::TopologyData& topology)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("path", topology.path);
+    out.Set("sampleIndex", Napi::Number::New(env, static_cast<double>(topology.sampleIndex)));
+    out.Set("sampleTime", Napi::Number::New(env, topology.sampleTime));
+    out.Set("pointCount", Napi::Number::New(env, static_cast<double>(topology.pointCount)));
+    out.Set("faceCount", Napi::Number::New(env, static_cast<double>(topology.faceCount)));
+    out.Set("cornerCount", Napi::Number::New(env, static_cast<double>(topology.cornerCount)));
+    out.Set("hash", topology.hash);
+    out.Set("hashAlgorithm", "fnv1a64-faces-v1");
+    if (topology.withFaces) {
+        out.Set("faceCounts", toTypedArray<Napi::Int32Array>(env, topology.faceCounts));
+        out.Set("faceIndices", toTypedArray<Napi::Int32Array>(env, topology.faceIndices));
+    }
+    return out;
+}
+
+Napi::Value topologyChangesToJs(Napi::Env env, const std::vector<abcjs::TopologyData>& changes)
+{
+    Napi::Array out = Napi::Array::New(env, changes.size());
+    for (uint32_t i = 0; i < changes.size(); ++i) {
+        Napi::Object change = Napi::Object::New(env);
+        change.Set("sampleIndex", Napi::Number::New(env, static_cast<double>(changes[i].sampleIndex)));
+        change.Set("sampleTime", Napi::Number::New(env, changes[i].sampleTime));
+        change.Set("pointCount", Napi::Number::New(env, static_cast<double>(changes[i].pointCount)));
+        change.Set("faceCount", Napi::Number::New(env, static_cast<double>(changes[i].faceCount)));
+        change.Set("hash", changes[i].hash);
+        out.Set(i, change);
+    }
+    return out;
+}
+
+bool facesOption(const Napi::CallbackInfo& info, size_t index)
+{
+    return info.Length() > index && info[index].IsObject() &&
+           info[index].As<Napi::Object>().Get("faces").ToBoolean().Value();
+}
+
 // Runs a read on a worker thread and resolves a promise with its JS conversion.
 // It keeps the archive alive, so close() during the read is safe.
 template <class Result> class ReadWorker : public Napi::AsyncWorker {
@@ -445,6 +485,58 @@ Napi::Value AbcArchive::getMeshFrameAsync(const Napi::CallbackInfo& info)
     return queueMeshRead(info, false);
 }
 
+Napi::Value AbcArchive::getTopology(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    const std::string objectPath = requireObjectPath(info);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
+    const bool withFaces = facesOption(info, 2);
+    return translate(env, [&]() -> Napi::Value {
+        return topologyToJs(env, abcjs::ReadTopology(data, objectPath, spec, withFaces));
+    });
+}
+
+Napi::Value AbcArchive::getTopologyAsync(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    requireData(env);
+    std::shared_ptr<abcjs::ArchiveData> data = m_data;
+    const std::string objectPath = requireObjectPath(info);
+    const abcjs::SampleSpec spec = sampleSpec(info, 1, 2);
+    const bool withFaces = facesOption(info, 2);
+    auto* worker = new ReadWorker<abcjs::TopologyData>(
+        env, data,
+        [data, objectPath, spec, withFaces] { return abcjs::ReadTopology(*data, objectPath, spec, withFaces); },
+        [](Napi::Env e, const abcjs::TopologyData& topology) -> Napi::Value { return topologyToJs(e, topology); });
+    auto promise = worker->promise();
+    worker->Queue();
+    return promise;
+}
+
+Napi::Value AbcArchive::getTopologyChanges(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    requireData(env);
+    std::shared_ptr<abcjs::ArchiveData> data = m_data;
+    const std::string objectPath = requireObjectPath(info);
+    auto* worker = new ReadWorker<std::vector<abcjs::TopologyData>>(
+        env, data, [data, objectPath] { return abcjs::ReadTopologyChanges(*data, objectPath); }, topologyChangesToJs);
+    auto promise = worker->promise();
+    worker->Queue();
+    return promise;
+}
+
+// Internal counters for tests (spec 0009); not part of the public API.
+Napi::Value AbcArchive::getDebugStats(const Napi::CallbackInfo& info)
+{
+    auto env = info.Env();
+    const auto& data = requireData(env);
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("topologyHashReads", Napi::Number::New(env, static_cast<double>(data.topologyHashReads.load())));
+    return out;
+}
+
 Napi::Value AbcArchive::getPoints(const Napi::CallbackInfo& info)
 {
     auto env = info.Env();
@@ -682,6 +774,10 @@ Napi::Function AbcArchive::GetClass(Napi::Env env)
                            InstanceMethod("getMeshFrame", &AbcArchive::getMeshFrame),
                            InstanceMethod("getMeshAsync", &AbcArchive::getMeshAsync),
                            InstanceMethod("getMeshFrameAsync", &AbcArchive::getMeshFrameAsync),
+                           InstanceMethod("getTopology", &AbcArchive::getTopology),
+                           InstanceMethod("getTopologyAsync", &AbcArchive::getTopologyAsync),
+                           InstanceMethod("getTopologyChanges", &AbcArchive::getTopologyChanges),
+                           InstanceMethod("getDebugStats", &AbcArchive::getDebugStats),
                            InstanceMethod("getTransform", &AbcArchive::getTransform),
                            InstanceMethod("getCamera", &AbcArchive::getCamera),
                            InstanceMethod("getPoints", &AbcArchive::getPoints),

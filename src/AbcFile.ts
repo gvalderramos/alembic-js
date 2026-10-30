@@ -14,6 +14,8 @@ import type {
     AbcPoints,
     AbcPropertyInfo,
     AbcTimeSampling,
+    AbcTopology,
+    AbcTopologyChange,
     AbcTransform,
     AbcUserProperties,
     AbcValue,
@@ -21,6 +23,7 @@ import type {
     PropertyListOptions,
     PropertyReadOptions,
     SampleOptions,
+    TopologyOptions,
 } from './types';
 
 function copyObject(obj: AbcObject): AbcObject {
@@ -232,6 +235,42 @@ export class AbcFile {
                 groupByFaceSet,
                 triangleToFace,
             });
+        } catch (error) {
+            throw wrapNativeError(error, { file: this.path, objectPath });
+        }
+    }
+
+    /**
+     * Point, face and corner counts and the topology hash of a 'mesh' or 'subd' at a time (spec 0009),
+     * without triangulating. `faces: true` also returns the raw face arrays. Throws
+     * ERR_ABC_INVALID_ARGUMENT for other object types.
+     */
+    getTopology(objectPath: string, options: TopologyOptions = {}): AbcTopology {
+        const [time, sample] = this.sample(options);
+        return this.call(
+            () => this.native.getTopology(objectPath, time, { ...sample, faces: options.faces }),
+            objectPath,
+        );
+    }
+
+    /** Same as getTopology() but read on a worker thread. */
+    async getTopologyAsync(objectPath: string, options: TopologyOptions = {}): Promise<AbcTopology> {
+        const [time, sample] = this.sample(options);
+        try {
+            return await this.native.getTopologyAsync(objectPath, time, { ...sample, faces: options.faces });
+        } catch (error) {
+            throw wrapNativeError(error, { file: this.path, objectPath });
+        }
+    }
+
+    /**
+     * The samples at which a mesh's topology changes: one entry for the first sample and one for every
+     * sample whose hash or point count differs from the previous one. Constant and homogeneous meshes
+     * cost one read; changing meshes are walked by array digest and hashed only when the faces change.
+     */
+    async getTopologyChanges(objectPath: string): Promise<AbcTopologyChange[]> {
+        try {
+            return await this.native.getTopologyChanges(objectPath);
         } catch (error) {
             throw wrapNativeError(error, { file: this.path, objectPath });
         }

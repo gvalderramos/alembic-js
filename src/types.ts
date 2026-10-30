@@ -157,6 +157,44 @@ export interface MeshOptions extends SampleOptions {
     triangleToFace?: boolean;
 }
 
+/**
+ * Topology of a mesh or subd at one sample (spec 0009), read without triangulating.
+ * Two samples (or two files) with the same `hash` and `pointCount` have the same connectivity.
+ */
+export interface AbcTopology {
+    path: string;
+    /** Index of the sample that was read (topology is never interpolated). */
+    sampleIndex: number;
+    sampleTime: number;
+    /** Number of points (P), i.e. source vertices. */
+    pointCount: number;
+    faceCount: number;
+    /** Number of face indices (sum of face counts). */
+    cornerCount: number;
+    /** 'fnv1a64-faces-v1' hash of the raw face counts and indices: 16 lowercase hex digits. */
+    hash: string;
+    hashAlgorithm: 'fnv1a64-faces-v1';
+    /** With `faces: true`: face counts as stored in the file. */
+    faceCounts?: Int32Array;
+    /** With `faces: true`: face indices as stored in the file (no rewinding). */
+    faceIndices?: Int32Array;
+}
+
+/** Options of getTopology(). `mode: 'interpolate'` is read as 'floor'. */
+export interface TopologyOptions extends SampleOptions {
+    /** Return the raw `faceCounts` and `faceIndices`. Default false. */
+    faces?: boolean;
+}
+
+/** A sample at which a mesh's topology changes (see AbcFile.getTopologyChanges()). */
+export interface AbcTopologyChange {
+    sampleIndex: number;
+    sampleTime: number;
+    pointCount: number;
+    faceCount: number;
+    hash: string;
+}
+
 /** A named group of polygons of a mesh, usually one per material (spec 0003). */
 export interface AbcFaceSet {
     name: string;

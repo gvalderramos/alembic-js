@@ -9,6 +9,7 @@
 #include <Alembic/Abc/All.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -102,6 +103,13 @@ struct MeshTopologyCache {
     size_t vertexCount = 0;
 };
 
+// Topology identity of one mesh sample (spec 0009), cached by Alembic array digests.
+struct TopologyHashEntry {
+    std::string hash; // fnv1a64-faces-v1, 16 lowercase hex digits
+    size_t faceCount = 0;
+    size_t cornerCount = 0;
+};
+
 struct ArchiveData {
     Alembic::Abc::IArchive archive;
     std::string path;
@@ -124,6 +132,10 @@ struct ArchiveData {
     // Mesh topology fingerprints, keyed by "path|layout options". Guarded for async reads.
     mutable std::mutex cacheMutex;
     mutable std::unordered_map<std::string, MeshTopologyCache> topologyCache;
+    // Topology hashes (spec 0009), keyed by "path|faceCounts digest|faceIndices digest".
+    mutable std::unordered_map<std::string, TopologyHashEntry> topologyHashCache;
+    // Debug stats: how many times face arrays were read to compute a topology hash.
+    mutable std::atomic<uint64_t> topologyHashReads{0};
 };
 
 // A geometry attribute (.arbGeomParams) laid out like the mesh positions (spec 0006).
@@ -148,6 +160,7 @@ struct MeshOptions {
     bool forceCorners = false;           // layout: 'corners'
     bool groupByFaceSet = false;         // reorder triangles so each face set is one range (spec 0003)
     bool triangleToFace = false;         // return the source polygon of every triangle
+    bool vertexToPoint = false;          // return the source point of every vertex (spec 0009)
 };
 
 // A range of triangles drawn with one material slot (spec 0003).
@@ -184,6 +197,21 @@ struct MeshData {
     std::vector<MaterialSlot> materialSlots;
     bool faceSetsOverlap = false;
     std::vector<uint32_t> triangleToFace;
+    std::vector<uint32_t> vertexToPoint;
+};
+
+// Topology of a mesh/subd sample (spec 0009). Face arrays are only filled when requested.
+struct TopologyData {
+    std::string path;
+    int64_t sampleIndex = 0;
+    double sampleTime = 0.0;
+    size_t pointCount = 0;
+    size_t faceCount = 0;
+    size_t cornerCount = 0;
+    std::string hash;
+    bool withFaces = false;
+    std::vector<int32_t> faceCounts;
+    std::vector<int32_t> faceIndices;
 };
 
 // Points / particles (spec 0002).
@@ -256,6 +284,14 @@ MeshData ReadMesh(const ArchiveData& data, const std::string& objectPath, const 
 // topology differs from the last ReadMesh/ReadMeshFrame of this object with the same options.
 MeshData ReadMeshFrame(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec,
                        const MeshOptions& options = MeshOptions());
+// Topology at a time ('interpolate' is read as 'floor'), without triangulating (spec 0009).
+// Throws InvalidArgument for objects that are not meshes or subds.
+TopologyData ReadTopology(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec,
+                          bool withFaces);
+// The first sample, and every sample whose topology (hash or point count) differs from the previous.
+std::vector<TopologyData> ReadTopologyChanges(const ArchiveData& data, const std::string& objectPath);
+// FNV-1a 64 over face counts then face indices as uint32 little-endian (spec 0009).
+std::string TopologyHash(const int32_t* faceCounts, size_t numFaces, const int32_t* faceIndices, size_t numCorners);
 TransformData ReadTransform(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec);
 CameraData ReadCamera(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec);
 PointsData ReadPoints(const ArchiveData& data, const std::string& objectPath, const SampleSpec& spec);

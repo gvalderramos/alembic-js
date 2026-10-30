@@ -1,6 +1,6 @@
 # 0009 - Topology Info and Data for Comparing Caches
 
-**Status:** Proposed
+**Status:** In progress (slices 1-2 implemented)
 
 ## Overview
 Review and pipeline tools compare two versions of the same cache: did the topology change, how far did each point move, and what does the motion look like between samples. alembic-js has most of the pieces (topology variance, per-frame reads, interpolation, frame streaming) but no cheap way to identify a mesh's topology, no way to map a viewer vertex back to its source point, and no way to stream a per-vertex value that isn't a position. This spec adds those three things, plus velocity options on the frame encoder.
@@ -147,6 +147,10 @@ interface EncodeOptions {
 - **`vertexToPoint` instead of a points-layout scene.** Viewers keep the layout they need for normals and UVs; per-point data is expanded with one lookup per vertex.
 - **Attribute records carry float32 only.** Scalars and colors cover the known uses; integer attributes can be a new kind later.
 - **Sub-frames need no new API.** `encodeFrames(times, { mode: 'interpolate' })` already works; only the velocity pass-through is added.
+- **A topology change is a different hash or a different point count.** `getTopologyChanges()` reports both, so its entries equal `getTopology()` at every sample with repeats dropped; a mesh that only gains unused points still needs a new vertex buffer.
+- **Constant and homogeneous meshes return one entry without walking.** Their topology is fixed by definition; heterogeneous meshes are walked by `faceCounts`/`faceIndices` digest plus the size of `P` (read without its data).
+- **Hashes are cached per archive by `path|faceCounts digest|faceIndices digest`**, separately from the per-frame layout cache, so `getTopology()` at any sample of a constant mesh hashes once. Files without digests (HDF5) are hashed on every read.
+- **The face-read counter is internal.** `getDebugStats()` exists on the native handle for tests and isn't part of the typed API.
 - **Release:** ships in the same npm minor as spec 0008 (the first release with `alembic-js/stream`). Consumers pin that version.
 
 ## Implementation plan

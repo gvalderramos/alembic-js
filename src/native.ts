@@ -13,6 +13,8 @@ import type {
     AbcObject,
     AbcPoints,
     AbcPropertyInfo,
+    AbcTopology,
+    AbcTopologyChange,
     AbcTransform,
     AbcUserProperties,
     AbcValue,
@@ -31,6 +33,10 @@ export interface NativeMeshOptions extends NativeSampleOptions {
     triangleToFace?: boolean;
 }
 
+export interface NativeTopologyOptions extends NativeSampleOptions {
+    faces?: boolean;
+}
+
 /** Shape of the C++ `AbcArchive` class (addons/AbcArchive.cpp). */
 export interface NativeArchive {
     open(): void;
@@ -43,6 +49,11 @@ export interface NativeArchive {
     getMeshFrame(objectPath: string, time?: number, options?: NativeMeshOptions): AbcMeshFrame;
     getMeshAsync(objectPath: string, time?: number, options?: NativeMeshOptions): Promise<AbcMesh>;
     getMeshFrameAsync(objectPath: string, time?: number, options?: NativeMeshOptions): Promise<AbcMeshFrame>;
+    getTopology(objectPath: string, time?: number, options?: NativeTopologyOptions): AbcTopology;
+    getTopologyAsync(objectPath: string, time?: number, options?: NativeTopologyOptions): Promise<AbcTopology>;
+    getTopologyChanges(objectPath: string): Promise<AbcTopologyChange[]>;
+    /** Internal counters for tests. */
+    getDebugStats(): { topologyHashReads: number };
     getPoints(objectPath: string, time?: number, options?: NativeSampleOptions): AbcPoints;
     getCurves(objectPath: string, time?: number, options?: NativeSampleOptions): AbcCurves;
     getFaceSets(objectPath: string, time?: number, options?: NativeSampleOptions): AbcFaceSet[];
