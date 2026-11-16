@@ -51,14 +51,14 @@
   "devDependencies": {
     "@eslint/js": "^9",
     "@types/node": "^22.15.18",
-    "@types/three": "^0.170.0",
+    "@types/three": "^0.187.0",
     "cmake-js": "^7.3.1",
-    "esbuild": "0.25.11",
+    "esbuild": "0.28.2",
     "eslint": "^9",
     "globals": "^15",
     "node-addon-api": "^8.3.1",
     "prettier": "^3",
-    "three": "^0.170.0",
+    "three": "^0.187.0",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8"
   },
