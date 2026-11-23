@@ -15,11 +15,11 @@
   },
   "dependencies": {
     "alembic-js": "link:..",
-    "three": "^0.170.0"
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.18",
-    "@types/three": "^0.170.0",
+    "@types/three": "^0.187.0",
     "typescript": "^5.8.3"
   }
 }
